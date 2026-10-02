@@ -9,5 +9,10 @@
     "types": ["node", "screeps"],
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src/**/*.ts", "tools/**/*.ts"]
+  "include": [
+    "src/**/*.ts",
+    "shared/**/*.ts",
+    "tools/**/*.ts",
+    "test/**/*.ts"
+  ]
 }

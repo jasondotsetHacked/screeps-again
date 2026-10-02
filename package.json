@@ -10,11 +10,13 @@
     "build": "node scripts/build.mjs",
     "watch": "node scripts/build.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "check": "npm run typecheck && npm run build",
+    "test": "node --import tsx --test \"test/**/*.test.ts\"",
+    "check": "npm run typecheck && npm test && npm run build",
     "deploy": "npm run build && node scripts/deploy.mjs",
     "world:me": "tsx tools/world/me.ts",
     "world:shards": "tsx tools/world/shards.ts",
-    "world:room": "tsx tools/world/room.ts"
+    "world:room": "tsx tools/world/room.ts",
+    "world:region": "tsx tools/world/region.ts"
   },
   "dependencies": {
     "screeps-api": "^2.1.0"
