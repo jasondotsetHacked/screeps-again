@@ -1,0 +1,20 @@
+node_modules/
+dist/
+coverage/
+*.log
+
+# Local Screeps credentials and configuration
+.env
+.env.*
+!.env.example
+screeps.json
+screeps.yaml
+
+# External world-analysis cache
+.world-cache/
+
+# Editor/OS noise
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/

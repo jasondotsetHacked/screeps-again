@@ -1,0 +1,29 @@
+{
+  "name": "screeps-again",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "check": "npm run typecheck && npm run build",
+    "deploy": "npm run build && node scripts/deploy.mjs",
+    "world:me": "tsx tools/world/me.ts",
+    "world:shards": "tsx tools/world/shards.ts",
+    "world:room": "tsx tools/world/room.ts"
+  },
+  "dependencies": {
+    "screeps-api": "^2.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/screeps": "^3.4.0",
+    "esbuild": "^0.28.2",
+    "tsx": "^4.20.6",
+    "typescript": "^7.0.2"
+  }
+}
