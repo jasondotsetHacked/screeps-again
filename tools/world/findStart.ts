@@ -1,7 +1,10 @@
 import { getScreepsClient } from '../lib/screepsClient';
 import { planInitialSpawn, type InitialSpawnPlan } from './spawnPlan';
-import { scanRegion, type RegionScanResult } from './scanRegion';
-import type { ScoredRoom } from './types';
+import { scanRegion } from './scanRegion';
+import type {
+  RegionScanResult,
+  ScoredRoom
+} from './types';
 
 export interface StartCandidate {
   shard: string;
@@ -36,7 +39,11 @@ export async function findStartCandidates(
 
   const shards = shardsResponse.shards
     .filter((shard) => shard.rooms > 0)
-    .sort((a, b) => a.users / Math.max(a.rooms, 1) - b.users / Math.max(b.rooms, 1));
+    .sort(
+      (a, b) =>
+        a.users / Math.max(a.rooms, 1) -
+        b.users / Math.max(b.rooms, 1)
+    );
 
   const scans: RegionScanResult[] = [];
   const candidates: StartCandidate[] = [];
@@ -48,7 +55,9 @@ export async function findStartCandidates(
       const rawSeed = start.room[0];
 
       if (!rawSeed) {
-        onProgress?.(`Skipping ${shard.name}: no start-room hint returned.`);
+        onProgress?.(
+          `Skipping ${shard.name}: no start-room hint returned.`
+        );
         continue;
       }
 
@@ -74,7 +83,10 @@ export async function findStartCandidates(
           const densityPenalty = Math.min(8, density * 20);
           const spawnPenalty = Math.min(8, spawn.score / 60);
           const combinedScore = Number(
-            Math.max(0, room.total - densityPenalty - spawnPenalty).toFixed(1)
+            Math.max(
+              0,
+              room.total - densityPenalty - spawnPenalty
+            ).toFixed(1)
           );
 
           candidates.push({
