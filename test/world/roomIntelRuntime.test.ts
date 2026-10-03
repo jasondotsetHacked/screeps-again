@@ -12,6 +12,8 @@ function roomIntel(roomName: string) {
   return intel;
 }
 
+const malformedWorldVersions: unknown[] = ['broken', '2', -1, 1.5, NaN, Infinity, -Infinity, null, false, {}, []];
+
 test('optional world namespace initializes on existing v1 Memory without changing unrelated data', () => {
   fixture();
   initializeMemory();
@@ -50,26 +52,69 @@ test('missing or damaged intel containers recover without wiping unrelated names
   }
 });
 
-test('future namespace version is preserved during rollback and colony execution continues', (t) => {
-  t.mock.method(console, 'log', () => {});
+test('malformed namespace versions recover in place while retained room data stays validated', () => {
   const f = fixture();
-  const memory = Memory as unknown as { world: unknown };
-  const future = { version: 2, rooms: { secret: { futureFact: true } } };
-  memory.world = future;
-  const before = JSON.stringify(future);
-  assert.equal(initializeWorldIntel(memory), undefined);
-  runKernel();
-  assert.equal(memory.world, future);
-  assert.equal(JSON.stringify(future), before);
-  assert.ok(f.actions.includes('w0:upgrade'));
+  const valid = projectRoomIntel(observeRoom(f.room, 1));
+  const legacy = { lastSeen: 12, sources: [] };
+  for (const version of malformedWorldVersions) {
+    const rooms = { [f.room.name]: valid, E22S31: legacy };
+    const memory = { world: { version, rooms, extension: 'keep' }, other: { durable: 1 } };
+    const original = memory.world;
+    const world = initializeWorldIntel(memory)!;
+    assert.equal(world, original);
+    assert.equal(world.version, 1);
+    assert.equal(world.rooms, rooms);
+    assert.equal(readRoomIntel(world, f.room.name), valid);
+    assert.equal(world.rooms.E22S31, legacy);
+    assert.equal(readRoomIntel(world, 'E22S31'), undefined);
+    assert.equal(memory.world.extension, 'keep');
+    assert.deepEqual(memory.other, { durable: 1 });
+    assert.equal(initializeWorldIntel(memory), world);
+  }
 });
 
-test('runtime adapter projects ownership, reservation, mineral and bounded hostile summaries', () => {
+test('kernel resumes intel writes after malformed versions without changing unrelated Memory', () => {
+  for (const version of malformedWorldVersions) {
+    const f = fixture();
+    initializeMemory();
+    const meta = Memory.meta;
+    const creeps = Memory.creeps;
+    const unseen = { version: 0, lastSeen: 0 };
+    Object.assign(Memory, { world: { version, rooms: { E22S31: unseen }, extension: 'keep' } });
+    runKernel();
+    assert.equal(Memory.world!.version, 1);
+    assert.equal(roomIntel(f.room.name).lastSeen, Game.time);
+    assert.deepEqual(roomIntel(f.room.name).presence, { foreignCreeps: 0, foreignTowers: 0, invaderCores: 0 });
+    assert.equal(Memory.world!.rooms.E22S31, unseen);
+    assert.equal((Memory.world as unknown as { extension: string }).extension, 'keep');
+    assert.equal(Memory.meta, meta);
+    assert.equal(Memory.creeps, creeps);
+    assert.ok(f.actions.includes('w0:upgrade'));
+  }
+});
+
+test('future namespace version is preserved during rollback and colony execution continues', (t) => {
+  t.mock.method(console, 'log', () => {});
+  for (const version of [2, 3, 1000000]) {
+    const f = fixture();
+    const memory = Memory as unknown as { world: unknown };
+    const future = { version, rooms: { secret: { futureFact: true } } };
+    memory.world = future;
+    const before = JSON.stringify(future);
+    assert.equal(initializeWorldIntel(memory), undefined);
+    runKernel();
+    assert.equal(memory.world, future);
+    assert.equal(JSON.stringify(future), before);
+    assert.ok(f.actions.includes('w0:upgrade'));
+  }
+});
+
+test('runtime adapter projects ownership, reservation, mineral and neutral foreign presence', () => {
   const f = fixture();
   Object.assign(f.controller, { my: false, owner: { username: 'owner' }, level: 4,
     reservation: { username: 'reserver', ticksToEnd: 25 } });
   f.hostiles.push({} as Creep);
-  const tower = f.refill('enemy-tower', 0, STRUCTURE_TOWER);
+  const tower = f.refill('foreign-tower', 0, STRUCTURE_TOWER);
   tower.my = false;
   f.structures.push({ structureType: STRUCTURE_INVADER_CORE } as Structure);
   const mineral = { id: 'mineral', pos: position(6, 7), mineralType: 'O' } as Mineral;
@@ -80,10 +125,10 @@ test('runtime adapter projects ownership, reservation, mineral and bounded hosti
   assert.equal(intel.controller?.level, 4);
   assert.equal(intel.controller?.reservation?.expiresAt, 125);
   assert.deepEqual(intel.mineral, { id: 'mineral', x: 6, y: 7, type: 'O' });
-  assert.deepEqual(intel.hostiles, { creeps: 1, towers: 1, invaderCores: 1 });
+  assert.deepEqual(intel.presence, { foreignCreeps: 1, foreignTowers: 1, invaderCores: 1 });
 });
 
-test('new sightings replace old facts and clear vanished ownership, reservation and hostiles', () => {
+test('new sightings replace old facts and clear vanished ownership, reservation and foreign presence', () => {
   const f = fixture();
   Object.assign(f.controller, { owner: { username: 'old-owner' },
     reservation: { username: 'old-reserver', ticksToEnd: 10 } });
@@ -101,7 +146,7 @@ test('new sightings replace old facts and clear vanished ownership, reservation 
   assert.equal(next.lastSeen, 2);
   assert.equal(next.controller?.owner, null);
   assert.equal(next.controller?.reservation, null);
-  assert.equal(next.hostiles.creeps, 0);
+  assert.equal(next.presence.foreignCreeps, 0);
   delete f.room.controller;
   Game.time = 3;
   updateVisibleRoomIntel([f.room]);
@@ -127,7 +172,9 @@ test('visible older or malformed records rebuild; unseen and future records rema
   const records = world.rooms as unknown as Record<string, unknown>;
   const unseen = { version: 0, lastSeen: 0 };
   records.E22S31 = unseen;
-  for (const previous of [{ version: 0 }, { version: 1, sources: null }, null]) {
+  const { presence, ...oldFields } = projectRoomIntel(observeRoom(f.room, 1));
+  const oldNaming = { ...oldFields, hostiles: { creeps: 0, towers: 0, invaderCores: 0 } };
+  for (const previous of [{ version: 0 }, { version: 1, sources: null }, oldNaming, null]) {
     records[f.room.name] = previous;
     updateVisibleRoomIntel([f.room]);
     assert.equal(intelFreshness(records[f.room.name], 1, 0), 'fresh');
@@ -169,7 +216,7 @@ test('kernel reuses colony scans and keeps world intel outside public ops snapsh
   }
   assert.ok(f.actions.includes('w0:upgrade'));
   const publicMemory = JSON.stringify(Memory.ops);
-  for (const key of ['lastSeen', 'roomClass', 'invaderCores', 'expiresAt', 'world']) {
+  for (const key of ['lastSeen', 'roomClass', 'presence', 'foreignCreeps', 'foreignTowers', 'invaderCores', 'expiresAt', 'world']) {
     assert.equal(publicMemory.includes(key), false);
   }
 });

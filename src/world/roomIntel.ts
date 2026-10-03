@@ -13,10 +13,12 @@ export interface RoomIntelScans {
 export function initializeWorldIntel(memory: { world?: unknown }): WorldIntelMemory | undefined {
   if (!isRecord(memory.world)) memory.world = { version: 1, rooms: {} };
   const world = memory.world as Record<string, unknown>;
-  if (world.version === undefined || world.version === 0) world.version = 1;
-  // Preserve future/unsupported versions during a rollback, without stopping
+  // Preserve valid future versions during a rollback, without stopping
   // colony execution or attempting a destructive downgrade.
-  if (world.version !== 1) return undefined;
+  if (typeof world.version === 'number' && Number.isInteger(world.version) && world.version > 1) return undefined;
+  // Missing/old headers and malformed values recover in place. Retained room
+  // data stays untrusted until readRoomIntel validates it or vision rebuilds it.
+  world.version = 1;
   if (!isRecord(world.rooms)) world.rooms = {};
   return world as unknown as WorldIntelMemory;
 }
@@ -25,7 +27,7 @@ export function initializeWorldIntel(memory: { world?: unknown }): WorldIntelMem
 export function observeRoom(room: Room, tick: number, scans?: RoomIntelScans): RoomObservation {
   const sources = scans?.sources ?? room.find(FIND_SOURCES);
   const structures = scans?.structures ?? room.find(FIND_STRUCTURES);
-  const hostiles = scans?.hostiles ?? room.find(FIND_HOSTILE_CREEPS);
+  const foreignCreeps = scans?.hostiles ?? room.find(FIND_HOSTILE_CREEPS);
   const mineral = room.find(FIND_MINERALS)[0];
   const controller = room.controller;
   const position = (object: { id: string; pos: RoomPosition }) => ({
@@ -41,9 +43,9 @@ export function observeRoom(room: Room, tick: number, scans?: RoomIntelScans): R
     } : null,
     sources: sources.map(position),
     mineral: mineral ? { ...position(mineral), type: mineral.mineralType } : null,
-    hostiles: {
-      creeps: hostiles.length,
-      towers: structures.filter((s) => s.structureType === STRUCTURE_TOWER && !(s as StructureTower).my).length,
+    presence: {
+      foreignCreeps: foreignCreeps.length,
+      foreignTowers: structures.filter((s) => s.structureType === STRUCTURE_TOWER && !(s as StructureTower).my).length,
       invaderCores: structures.filter((s) => s.structureType === STRUCTURE_INVADER_CORE).length
     }
   };

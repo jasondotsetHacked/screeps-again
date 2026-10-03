@@ -9,7 +9,7 @@ function observation(overrides: Partial<RoomObservation> = {}): RoomObservation 
       reservation: null },
     sources: [{ id: 'b', x: 5, y: 6 }, { id: 'a', x: 7, y: 8 }],
     mineral: { id: 'mineral', x: 10, y: 11, type: 'H' },
-    hostiles: { creeps: 2, towers: 1, invaderCores: 0 }, ...overrides
+    presence: { foreignCreeps: 2, foreignTowers: 1, invaderCores: 0 }, ...overrides
   };
 }
 
@@ -20,7 +20,7 @@ test('projection creates compact, timestamped intel using shared room classifica
     controller: { id: 'controller', x: 20, y: 20, owner: 'owner', level: 3, reservation: null },
     sources: [{ id: 'a', x: 7, y: 8 }, { id: 'b', x: 5, y: 6 }],
     mineral: { id: 'mineral', x: 10, y: 11, type: 'H' },
-    hostiles: { creeps: 2, towers: 1, invaderCores: 0 }
+    presence: { foreignCreeps: 2, foreignTowers: 1, invaderCores: 0 }
   });
   assert.equal(isRoomIntel(intel), true);
   assert.equal(projectRoomIntel(observation({ roomName: 'W0N1' })).roomClass, 'highway');
@@ -35,12 +35,12 @@ test('projection copies allowlisted facts without mutating or retaining input ob
   const intel = projectRoomIntel(input);
   assert.equal(JSON.stringify(input), before);
   input.sources[0].x = 1;
-  input.hostiles.creeps = 999;
+  input.presence.foreignCreeps = 999;
   assert.equal(intel.sources.find((source) => source.id === 'b')?.x, 5);
-  assert.equal(intel.hostiles.creeps, 2);
+  assert.equal(intel.presence.foreignCreeps, 2);
   const serialized = JSON.stringify(intel);
   assert.ok(serialized.length < 700);
-  for (const key of ['energy', 'runtime', 'terrain', 'remoteScore']) assert.equal(serialized.includes(key), false);
+  for (const key of ['energy', 'runtime', 'terrain', 'remoteScore', 'hostiles']) assert.equal(serialized.includes(key), false);
   assert.deepEqual(JSON.parse(serialized), intel);
 });
 
@@ -72,10 +72,15 @@ test('missing, older, future and malformed records cannot masquerade as fresh in
   assert.equal(readRoomIntel({ version: 2, rooms: { E21S31: valid } }, 'E21S31'), undefined);
   assert.equal(readRoomIntel(undefined, 'E21S31'), undefined);
   assert.equal(readRoomIntel({ version: 1, rooms: {} }, 'E21S31'), undefined);
+  const { presence, ...oldFields } = valid;
+  const oldNaming = { ...oldFields, hostiles: { creeps: 2, towers: 1, invaderCores: 0 } };
   for (const value of [undefined, null, {}, { lastSeen: 100 }, { ...valid, version: 0 },
     { ...valid, version: 2 }, { ...valid, lastSeen: NaN }, { ...valid, sources: null },
     { ...valid, sources: [{ id: 'bad', x: 50, y: 0 }] }, { ...valid, controller: {} },
-    { ...valid, mineral: {} }, { ...valid, hostiles: { creeps: -1, towers: 0, invaderCores: 0 } }]) {
+    { ...valid, mineral: {} }, oldNaming,
+    { ...valid, presence: { foreignCreeps: -1, foreignTowers: 0, invaderCores: 0 } },
+    { ...valid, presence: { foreignCreeps: 0, foreignTowers: NaN, invaderCores: 0 } },
+    { ...valid, presence: { foreignCreeps: 0, foreignTowers: 0, invaderCores: 1.5 } }]) {
     assert.equal(isRoomIntel(value), false);
     assert.equal(intelFreshness(value, 100, 10), 'unknown');
     assert.equal(readRoomIntel({ version: 1, rooms: { E21S31: value } }, 'E21S31'), undefined);

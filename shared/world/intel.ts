@@ -17,7 +17,7 @@ export interface RoomObservation {
   }) | null;
   sources: readonly IntelObject[];
   mineral: (IntelObject & { type: string }) | null;
-  hostiles: { creeps: number; towers: number; invaderCores: number };
+  presence: { foreignCreeps: number; foreignTowers: number; invaderCores: number };
 }
 
 // Facts only. Room identity is the containing map key; all ticks are shard-local.
@@ -32,7 +32,7 @@ export interface RoomIntel {
   }) | null;
   sources: IntelObject[];
   mineral: (IntelObject & { type: string }) | null;
-  hostiles: { creeps: number; towers: number; invaderCores: number };
+  presence: { foreignCreeps: number; foreignTowers: number; invaderCores: number };
 }
 
 export interface WorldIntelMemory {
@@ -64,10 +64,10 @@ export function projectRoomIntel(observation: RoomObservation): RoomIntel {
     } : null,
     sources: observation.sources.map(objectFact).sort((a, b) => a.id.localeCompare(b.id)),
     mineral: mineral ? { ...objectFact(mineral), type: mineral.type } : null,
-    hostiles: {
-      creeps: observation.hostiles.creeps,
-      towers: observation.hostiles.towers,
-      invaderCores: observation.hostiles.invaderCores
+    presence: {
+      foreignCreeps: observation.presence.foreignCreeps,
+      foreignTowers: observation.presence.foreignTowers,
+      invaderCores: observation.presence.invaderCores
     }
   };
 }
@@ -104,8 +104,8 @@ export function isRoomIntel(value: unknown): value is RoomIntel {
   }
   if (value.mineral !== null && (!isObjectFact(value.mineral) ||
       !isRecord(value.mineral) || typeof value.mineral.type !== 'string')) return false;
-  return isRecord(value.hostiles) && nonnegativeInteger(value.hostiles.creeps) &&
-    nonnegativeInteger(value.hostiles.towers) && nonnegativeInteger(value.hostiles.invaderCores);
+  return isRecord(value.presence) && nonnegativeInteger(value.presence.foreignCreeps) &&
+    nonnegativeInteger(value.presence.foreignTowers) && nonnegativeInteger(value.presence.invaderCores);
 }
 
 export function intelFreshness(value: unknown, tick: number, maxAge: number): 'unknown' | 'fresh' | 'stale' {

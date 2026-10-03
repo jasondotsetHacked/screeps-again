@@ -46,7 +46,7 @@ world: {
       } | null,
       sources: { id: string, x: number, y: number }[],
       mineral: { id: string, x: number, y: number, type: string } | null,
-      hostiles: { creeps: number, towers: number, invaderCores: number }
+      presence: { foreignCreeps: number, foreignTowers: number, invaderCores: number }
     }
   }
 }
@@ -56,9 +56,12 @@ Room identity is the map key, so positions omit repeated room names. Source coun
 is `sources.length`. Controller presence, ownership, and mineral presence use
 explicit nulls. `owner` is the observed username; it is not a home colony or
 designation. Sources are sorted by ID for deterministic projection. Mineral type
-is recorded, not its changing amount. Hostile summaries contain standard hostile
+is recorded, not its changing amount. Presence summaries contain non-owned standard
 creep count, non-owned tower count, and invader-core count, without entity lists,
-combat bodies, structure inventories, or a stored strategic risk score.
+combat bodies, structure inventories, or a stored strategic risk score. The
+`foreignCreeps` count uses `FIND_HOSTILE_CREEPS`, whose ownership filter means
+"not mine"; foreign presence does not imply strategic hostility. No diplomacy or
+threat assessment is applied.
 
 `roomClass` uses the existing shared geometric classifier, including its central
 source-keeper band convention. It does not assert that a keeper is present or that
@@ -67,7 +70,7 @@ assessment, and designation.
 
 All ticks are `Game.time` for the current shard. `lastSeen` means a successful
 complete observation at the start of that tick. A new sighting replaces the whole
-small record; vanished ownership, reservation, or hostiles are cleared. Unseen
+small record; vanished ownership, reservation, or foreign presence are cleared. Unseen
 rooms are not rewritten, deleted, or relabeled as safe.
 
 `intelFreshness(record, now, maxAge)` returns:
@@ -84,7 +87,7 @@ age; it does not guarantee present safety or complete threat knowledge.
 Reservation `expiresAt` is `lastSeen + observed ticksToEnd`. It lets future readers
 derive expected remaining duration without rewriting Memory. Expiry is not proof
 that the room is currently unreserved: someone might renew it without our vision.
-Likewise, zero hostile counts are facts from `lastSeen`, not permission to operate.
+Likewise, zero foreign-presence counts are facts from `lastSeen`, not permission to operate.
 
 ## Projection, integration, and recovery
 
@@ -109,11 +112,19 @@ There was no previous world-intel schema on main. No manual migration is require
 - Missing/null/damaged namespace containers initialize locally.
 - Unversioned or v0 namespace headers advance to v1, preserving their room map
   and unrelated extension fields. No fictional legacy room schema is inferred.
+- Malformed namespace versions (such as strings, negative/fractional numbers,
+  null, NaN, or infinities) recover in place to v1. A structurally valid room map
+  and extension fields are retained; its entries still require validation, and
+  invalid room maps reset to an empty map. Unrelated Memory is unchanged. NaN and
+  infinities serialize as null in JSON; both direct and null values recover.
 - Older/malformed room entries rebuild when vision returns. Unseen entries remain
   stored, but `readRoomIntel` returns only validated v1 facts. The Memory room-map
   values are typed as `unknown` so future callers cannot accidentally skip this
   validation; retained old data is not silently treated as current facts.
-- Future namespace versions disable writes. Future numeric room versions remain
+- The earlier draft's `hostiles`-only room records fail current validation and
+  rebuild with `presence` on new vision; no legacy facts or assessment are inferred.
+- Valid integer namespace versions greater than 1 disable writes and remain
+  unchanged during rollback. Future numeric room versions remain
   untouched even when visible, protecting them on a code rollback.
 - Missing/damaged room maps reset only that map. Other Memory namespaces, creep
   identities, ops data, and `Memory.meta` are not migrated or wiped.
@@ -214,8 +225,8 @@ explicit future expansion operation, not permission to claim rooms automatically
 ## Validation of this foundation
 
 Main's baseline: 107 passing tests and a 51,180-byte unminified bundle.
-Foundation: 125 passing tests (18 added) and a 55,361-byte bundle: +4,181 bytes,
-approximately +8.17%. `npm run check` runs typechecking, the full suite, and build.
+Foundation: 127 passing tests (20 added) and a 55,430-byte bundle: +4,250 bytes,
+approximately +8.30%. `npm run check` runs typechecking, the full suite, and build.
 `git diff --check` is also required before the draft PR.
 
 Tests are local pure-function and mocked-runtime checks, including the unchanged
