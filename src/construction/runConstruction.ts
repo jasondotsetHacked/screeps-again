@@ -174,10 +174,9 @@ export function runConstruction(room: Room): void {
   if (Game.time % PLAN_INTERVAL === 0) {
     let remaining = MAX_NEW_SITES_PER_PLAN;
 
-    remaining -= ensureSourceContainers(room, spawn, remaining);
-
     const extensionLimit =
       CONTROLLER_STRUCTURES[STRUCTURE_EXTENSION][controller.level] ?? 0;
+
     remaining -= placeStructureSites(
       room,
       spawn,
@@ -186,9 +185,19 @@ export function runConstruction(room: Room): void {
       remaining
     );
 
+    // Early energy capacity is the highest-value infrastructure for the
+    // generalist-worker V1. Do not create lower-priority sites until every
+    // available extension at this RCL is represented by a structure/site.
+    if (
+      countStructuresAndSites(room, STRUCTURE_EXTENSION) < extensionLimit
+    ) {
+      return;
+    }
+
+    const towerLimit =
+      CONTROLLER_STRUCTURES[STRUCTURE_TOWER][controller.level] ?? 0;
+
     if (remaining > 0) {
-      const towerLimit =
-        CONTROLLER_STRUCTURES[STRUCTURE_TOWER][controller.level] ?? 0;
       remaining -= placeStructureSites(
         room,
         spawn,
@@ -196,6 +205,14 @@ export function runConstruction(room: Room): void {
         towerLimit,
         remaining
       );
+    }
+
+    if (countStructuresAndSites(room, STRUCTURE_TOWER) < towerLimit) {
+      return;
+    }
+
+    if (remaining > 0) {
+      remaining -= ensureSourceContainers(room, spawn, remaining);
     }
   }
 

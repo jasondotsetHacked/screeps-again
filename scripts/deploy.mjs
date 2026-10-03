@@ -24,3 +24,16 @@ await api.userCodeSet({
 });
 
 console.log(`Uploaded dist/main.js to Screeps code branch "${branch}".`);
+
+await api.userSetActiveBranch(branch, 'activeWorld');
+
+const branches = await api.userBranches();
+const deployedBranch = branches.list.find((entry) => entry.branch === branch);
+
+if (!deployedBranch?.activeWorld) {
+  throw new Error(
+    `Code uploaded, but Screeps did not report branch "${branch}" as the active World branch.`
+  );
+}
+
+console.log(`Activated Screeps World code branch "${branch}".`);
