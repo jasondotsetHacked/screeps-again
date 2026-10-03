@@ -29,6 +29,28 @@ declare global {
     creeps: OpsCreepSnapshot[];
   }
 
+  interface OpsWorkerPopulationSnapshot {
+    live: number;
+    spawning: number;
+    aging: number;
+    effective: number;
+    target: number;
+    replacementLead: number;
+  }
+
+  interface OpsStructureProgressSnapshot {
+    built: number;
+    sites: number;
+    target: number | null;
+  }
+
+  interface OpsInfrastructureSnapshot {
+    extensions: OpsStructureProgressSnapshot;
+    containers: OpsStructureProgressSnapshot;
+    towers: OpsStructureProgressSnapshot;
+    roads: OpsStructureProgressSnapshot;
+  }
+
   interface OpsRoomSnapshot {
     name: string;
     rcl: number;
@@ -41,6 +63,8 @@ declare global {
     constructionSites: number;
     hostiles: number;
     spawns: OpsSpawnSnapshot[];
+    workerPopulation?: OpsWorkerPopulationSnapshot;
+    infrastructure?: OpsInfrastructureSnapshot;
   }
 
   interface OpsSpawnSnapshot {
