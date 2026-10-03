@@ -1,6 +1,8 @@
 import { buildWorkerBody, replacementLeadTicks } from '../spawning/workerBody';
 import { planWorkerPopulation, workerTarget, type WorkerPopulation } from '../spawning/workerPlan';
 import type { WorkTarget, WorkPosition } from '../work/demands';
+import type { EnergySupply } from './planEnergy';
+import { observeSafety, type CriticalTarget, type HostileThreat, type SafetyTower } from './safetyState';
 
 export interface ColonyWorker {
   name: string;
@@ -19,6 +21,10 @@ export interface ColonyState {
     level: number;
     ticksToDowngrade: number;
     downgradeLimit: number;
+    safeMode: number;
+    safeModeAvailable: number;
+    safeModeCooldown: number;
+    upgradeBlocked: number;
   };
   energy: { available: number; capacity: number };
   sources: readonly Source[];
@@ -28,6 +34,10 @@ export interface ColonyState {
   towers: readonly StructureTower[];
   hostiles: readonly Creep[];
   droppedEnergy: Resource[];
+  energySupplies: readonly EnergySupply[];
+  hostileThreats: readonly HostileThreat[];
+  criticalTargets: readonly CriticalTarget[];
+  defenseTowers: readonly SafetyTower[];
   creeps: readonly Creep[];
   workerCreeps: readonly Creep[];
   workers: readonly ColonyWorker[];
@@ -54,6 +64,8 @@ export function observeColony(room: Room): ColonyState {
   const hostiles = room.find(FIND_HOSTILE_CREEPS);
   const droppedEnergy = room.find(FIND_DROPPED_RESOURCES).filter((resource) =>
     resource.resourceType === RESOURCE_ENERGY && resource.amount >= 20);
+  const tombstones = room.find(FIND_TOMBSTONES);
+  const ruins = room.find(FIND_RUINS);
   const spawns = structures.filter((s): s is StructureSpawn =>
     s.structureType === STRUCTURE_SPAWN && (s as StructureSpawn).my);
   const towers = structures.filter((s): s is StructureTower =>
@@ -81,15 +93,37 @@ export function observeColony(room: Room): ColonyState {
     };
   });
   const controller = room.controller;
+  // Do not drain spawning/defense pools. Containers and recovered stores are
+  // general supplies; hostile ramparts make supplies on their tile inaccessible.
+  const inaccessible = new Set(structures.filter((s) =>
+    s.structureType === STRUCTURE_RAMPART && !(s as StructureRampart).my &&
+    !(s as StructureRampart).isPublic
+  ).map((s) => `${s.pos.x},${s.pos.y}`));
+  const energySupplies: EnergySupply[] = [
+    ...sources.map((source): EnergySupply => ({ ...workTarget(source), kind: 'harvest',
+      amount: source.energy, regeneration: source.ticksToRegeneration })),
+    ...droppedEnergy.map((drop): EnergySupply => ({ ...workTarget(drop), kind: 'pickup', amount: drop.amount })),
+    ...[...structures.filter((s): s is StructureContainer => s.structureType === STRUCTURE_CONTAINER),
+      ...tombstones, ...ruins].flatMap((store): EnergySupply[] => {
+      const amount = store.store.getUsedCapacity(RESOURCE_ENERGY);
+      return amount > 0 ? [{ ...workTarget(store), kind: 'withdraw', amount }] : [];
+    })
+  ].filter((supply) => !inaccessible.has(`${supply.pos.x},${supply.pos.y}`));
   return {
     room,
     controller: controller ? {
       ...workTarget(controller), my: controller.my, level: controller.level,
       ticksToDowngrade: controller.ticksToDowngrade,
-      downgradeLimit: CONTROLLER_DOWNGRADE[controller.level] ?? 0
+      downgradeLimit: CONTROLLER_DOWNGRADE[controller.level] ?? 0,
+      safeMode: controller.safeMode ?? 0,
+      safeModeAvailable: controller.safeModeAvailable ?? 0,
+      safeModeCooldown: controller.safeModeCooldown ?? 0,
+      upgradeBlocked: controller.upgradeBlocked ?? 0
     } : undefined,
     energy: { available: room.energyAvailable, capacity: room.energyCapacityAvailable },
     sources, structures, constructionSites, spawns, towers, hostiles, droppedEnergy, creeps,
+    energySupplies,
+    ...observeSafety(room, structures, hostiles, spawns, towers),
     workerCreeps, workers, replacementLead,
     population: planWorkerPopulation({
       roomName: room.name, workers: workerCreeps, spawning, replacementLead,

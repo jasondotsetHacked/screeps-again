@@ -156,7 +156,7 @@ test('labor telemetry measures unsatisfied demands separately and uses four boun
   const state = observeColony(f.room);
   const demands = planWork(state);
   const assignments = scheduleWorkers(state, demands);
-  const summary = summarizeLabor({ state, demands, assignments });
+  const summary = summarizeLabor({ demands, assignments, executions: [] });
   assert.equal(summary.kinds.length, 4);
   assert.equal(summary.kinds.find((k) => k.kind === 'upgrade')?.unsatisfiedMinimum, 1);
   assert.equal(summary.kinds.find((k) => k.kind === 'refill')?.workers, 1);

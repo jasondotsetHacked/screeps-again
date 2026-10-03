@@ -8,4 +8,5 @@ export interface WorkerAssignment {
   capability: WorkCapability;
   contribution: number;
   emergency: boolean;
+  service: 'minimum' | 'desired' | 'surplus';
 }

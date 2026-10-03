@@ -52,8 +52,11 @@ test('normal acquisition retains fill/use hysteresis and nearby dropped energy p
 test('source allocation balances new workers and reuses existing source memory', () => {
   const f = fixture({ count: 3, energy: 0 });
   const state = observeColony(f.room);
-  const second = { id: 'source-b', pos: position(7, 7) } as Source;
-  const energy = workerEnergyContext({ ...state, sources: [...state.sources, second] });
+  const second = { id: 'source-b', pos: position(7, 7), energy: 3000 } as Source;
+  const getObject = Game.getObjectById;
+  Game.getObjectById = ((id: string) => id === second.id ? second : getObject(id as Id<Source>)) as typeof Game.getObjectById;
+  const energy = workerEnergyContext({ ...state, energySupplies: [...state.energySupplies,
+    { id: second.id, pos: second.pos, kind: 'harvest', amount: second.energy }] });
   for (const worker of f.workers) runWorker(worker, undefined, energy);
   assert.deepEqual(f.workers.map((w) => w.memory.sourceId), ['source-b', 'source-a', 'source-b']);
   runWorker(f.workers[0], undefined, energy);

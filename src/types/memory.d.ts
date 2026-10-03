@@ -64,6 +64,13 @@ declare global {
       unsatisfied: number;
       unsatisfiedMinimum: number;
       workers: number;
+      boundedAssigned?: number;
+      surplusAssigned?: number;
+      acquiringWorkers?: number;
+      travelingWorkers?: number;
+      workingWorkers?: number;
+      blockedWorkers?: number;
+      acceptedWorkIntents?: number;
     }[];
   }
 
@@ -82,6 +89,7 @@ declare global {
     workerPopulation?: OpsWorkerPopulationSnapshot;
     infrastructure?: OpsInfrastructureSnapshot;
     labor?: OpsLaborSnapshot;
+    safety?: { requested: boolean; attempted?: boolean; accepted: boolean; reason: import('../colony/planSafety').SafetyPlan['reason'] };
   }
 
   interface OpsSpawnSnapshot {
