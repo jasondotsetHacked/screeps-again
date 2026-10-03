@@ -51,7 +51,7 @@ for (const [index, candidate] of result.candidates.slice(0, 12).entries()) {
     `    Spawn1=${candidate.spawn.position.x},${candidate.spawn.position.y}  sources=${candidate.room.room.sources.length}  neighbor=${neighborText}`
   );
   console.log(
-    `    status=${candidate.room.room.status} protectionUntil=${protectionText} confidence=${candidate.room.confidence}`
+    `    status=${candidate.room.room.status} protectionUntil=${protectionText} confidence=${candidate.room.confidence} launchRisk=${candidate.launchRisk}`
   );
   console.log(
     `    spawn source costs=${candidate.spawn.sourcePathCosts.join('/')} controller=${candidate.spawn.controllerPathCost}`

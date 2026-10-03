@@ -14,6 +14,7 @@ export interface StartCandidate {
   shardRooms: number;
   shardUsers: number;
   combinedScore: number;
+  launchRisk: 'normal' | 'adjacent-high-rcl';
 }
 
 export interface FindStartResult {
@@ -25,6 +26,22 @@ export interface FindStartResult {
 
 function normalizeStartRoom(shard: string, raw: string): string {
   return raw.startsWith(`${shard}/`) ? raw.slice(shard.length + 1) : raw;
+}
+
+export function startLaunchRisk(
+  room: ScoredRoom
+): StartCandidate['launchRisk'] {
+  const adjacentHighRcl = room.nearbyOwners.some(
+    (owner) => owner.nearestDistance <= 1 && owner.maxRcl >= 7
+  );
+
+  const unprotected =
+    room.room.status === 'normal' &&
+    room.room.protectionEndsAt === null;
+
+  return adjacentHighRcl && unprotected
+    ? 'adjacent-high-rcl'
+    : 'normal';
 }
 
 export interface FindStartOptions {
@@ -146,7 +163,8 @@ export async function findStartCandidates(
               spawn,
               shardRooms: shard.rooms,
               shardUsers: shard.users,
-              combinedScore
+              combinedScore,
+              launchRisk: startLaunchRisk(room)
             };
 
             const key = `${shard.name}/${room.room.roomName}`;
@@ -173,12 +191,17 @@ export async function findStartCandidates(
 
   const candidates = [...candidateByRoom.values()];
 
-  candidates.sort(
-    (a, b) =>
+  candidates.sort((a, b) => {
+    if (a.launchRisk !== b.launchRisk) {
+      return a.launchRisk === 'normal' ? -1 : 1;
+    }
+
+    return (
       b.combinedScore - a.combinedScore ||
       b.room.total - a.room.total ||
       a.spawn.score - b.spawn.score
-  );
+    );
+  });
 
   return {
     scannedAt: new Date().toISOString(),
