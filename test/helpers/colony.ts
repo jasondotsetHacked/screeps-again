@@ -37,6 +37,8 @@ Object.assign(globalThis, {
   FIND_MY_SPAWNS: 8,
   FIND_TOMBSTONES: 9,
   FIND_RUINS: 10,
+  FIND_MINERALS: 11,
+  STRUCTURE_INVADER_CORE: 'invaderCore',
   STRUCTURE_RAMPART: 'rampart',
   TERRAIN_MASK_WALL: 1,
   STRUCTURE_SPAWN: 'spawn',
@@ -155,6 +157,7 @@ export function fixture(
           return drops;
         case FIND_TOMBSTONES: return tombstones;
         case FIND_RUINS: return ruins;
+        case FIND_MINERALS: return [];
         default:
           throw new Error(`Unexpected find ${type}`);
       }
