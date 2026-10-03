@@ -1,3 +1,4 @@
+import type { ColonyState } from '../colony/colonyState';
 import { buildWorkerBody, replacementLeadTicks } from './workerBody';
 import { planWorkerPopulation, planWorkerSpawn, workerTarget } from './workerPlan';
 
@@ -17,8 +18,8 @@ function spawnWorker(
   });
 }
 
-export function runSpawning(room: Room): void {
-  const spawns = room
+export function runSpawning(room: Room, state?: Pick<ColonyState, 'spawns' | 'population' | 'replacementLead'>): void {
+  const spawns = state?.spawns ?? room
     .find(FIND_MY_STRUCTURES)
     .filter(
       (structure): structure is StructureSpawn =>
@@ -31,8 +32,8 @@ export function runSpawning(room: Room): void {
   const plannedBody = buildWorkerBody(room.energyCapacityAvailable);
   if (plannedBody.length === 0) return;
 
-  const lead = replacementLeadTicks(plannedBody);
-  const population = planWorkerPopulation({
+  const lead = state?.replacementLead ?? replacementLeadTicks(plannedBody);
+  const population = state?.population ?? planWorkerPopulation({
     roomName: room.name,
     workers: Object.values(Game.creeps),
     spawning: spawns.flatMap((spawn) => {

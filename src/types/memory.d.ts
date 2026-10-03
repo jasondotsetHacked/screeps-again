@@ -51,6 +51,22 @@ declare global {
     roads: OpsStructureProgressSnapshot;
   }
 
+  interface OpsLaborSnapshot {
+    totalDemands: number;
+    emergency: boolean;
+    kinds: {
+      kind: 'refill' | 'build' | 'repair' | 'upgrade';
+      capability: 'work' | 'carry';
+      demands: number;
+      minimum: number;
+      desired: number;
+      assigned: number;
+      unsatisfied: number;
+      unsatisfiedMinimum: number;
+      workers: number;
+    }[];
+  }
+
   interface OpsRoomSnapshot {
     name: string;
     rcl: number;
@@ -65,6 +81,7 @@ declare global {
     spawns: OpsSpawnSnapshot[];
     workerPopulation?: OpsWorkerPopulationSnapshot;
     infrastructure?: OpsInfrastructureSnapshot;
+    labor?: OpsLaborSnapshot;
   }
 
   interface OpsSpawnSnapshot {

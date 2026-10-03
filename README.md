@@ -110,15 +110,15 @@ Once Spawn1 exists, the runtime:
 - forecasts replacement lead time from spawn time + travel + safety buffer;
 - keeps a target generalist-worker population;
 - assigns workers across sources;
-- refills spawn, extensions, and towers first;
+- schedules refill, construction, repair, and controller labor centrally;
 - builds containers, extensions, towers, and limited roads;
 - repairs damaged roads/containers;
-- protects controller downgrade;
-- otherwise upgrades the controller;
+- reserves ongoing controller upgrading alongside construction and roads;
+- overrides routine work below the controller emergency threshold;
 - uses towers for defense, healing, and emergency infrastructure repair;
 - logs colony/runtime errors without intentionally stopping every room.
 
-This is intentionally a simple V1 organism. Dedicated miners/haulers, remote mining, advanced base planning, market logic, combat doctrine, and the deeper forecaster come after the colony survives in the real world.
+Workers remain generalists. Dedicated miners/haulers, remote mining, advanced base planning, market logic, combat doctrine, and the deeper forecaster are future work. See [the colony labor architecture](docs/colony-labor.md) for the runtime pipeline, budgets, and transitional systems.
 
 ## Public-repo security
 
