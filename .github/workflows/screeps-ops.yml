@@ -3,6 +3,8 @@ name: Screeps Ops
 on:
   issue_comment:
     types: [created]
+  schedule:
+    - cron: '17 * * * *'
 
 permissions:
   contents: read
@@ -15,6 +17,7 @@ concurrency:
 jobs:
   query:
     if: >-
+      github.event_name == 'issue_comment' &&
       github.event.issue.number == 14 &&
       github.event.comment.user.login == github.repository_owner &&
       startsWith(github.event.comment.body, '/screeps ')
@@ -51,3 +54,57 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: gh issue comment 14 --repo "$GITHUB_REPOSITORY" --body-file .ops-response.md
+
+  scheduled-status:
+    if: github.event_name == 'schedule'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 22
+
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Initialize sanitized response
+        run: printf '### Screeps Ops\n\nScheduled query did not complete.\n' > .ops-response.md
+
+      - name: Read live Screeps telemetry
+        env:
+          SCREEPS_API_TOKEN: ${{ secrets.SCREEPS_API_TOKEN }}
+          SCREEPS_OPS_COMMAND: /screeps snapshot
+          SCREEPS_OPS_SHARD: shard3
+        run: node --import tsx tools/ops/githubOps.ts
+
+      - name: Upsert rolling status comment
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          {
+            echo '<!-- screeps-ops-status -->'
+            cat .ops-response.md
+            echo
+            echo '_Updated by the hourly Screeps Ops workflow. This comment is edited in place to avoid issue spam._'
+          } > .ops-status.md
+
+          status_id="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/14/comments?per_page=100" |
+            jq -s 'add | map(select(.user.login == "github-actions[bot]" and (.body | contains("<!-- screeps-ops-status -->")))) | last | .id // empty')"
+
+          jq -Rs '{body: .}' .ops-status.md > .ops-payload.json
+
+          if [ -n "$status_id" ]; then
+            gh api --method PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$status_id" --input .ops-payload.json >/dev/null
+          else
+            gh api --method POST "repos/$GITHUB_REPOSITORY/issues/14/comments" --input .ops-payload.json >/dev/null
+          fi
