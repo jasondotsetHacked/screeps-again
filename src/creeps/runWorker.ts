@@ -86,9 +86,9 @@ function findEnergyTarget(creep: Creep): EnergyTarget | null {
 }
 
 function sitePriority(site: ConstructionSite): number {
-  if (site.structureType === STRUCTURE_CONTAINER) return 0;
-  if (site.structureType === STRUCTURE_EXTENSION) return 1;
-  if (site.structureType === STRUCTURE_TOWER) return 2;
+  if (site.structureType === STRUCTURE_EXTENSION) return 0;
+  if (site.structureType === STRUCTURE_TOWER) return 1;
+  if (site.structureType === STRUCTURE_CONTAINER) return 2;
   if (site.structureType === STRUCTURE_ROAD) return 4;
   return 3;
 }
