@@ -29,6 +29,7 @@ function normalizeStartRoom(shard: string, raw: string): string {
 
 export interface FindStartOptions {
   allowShardX?: boolean;
+  startSamples?: number;
 }
 
 export async function findStartCandidates(
@@ -63,63 +64,92 @@ export async function findStartCandidates(
     );
   }
 
+  const samples = options.startSamples ?? 4;
+  if (!Number.isInteger(samples) || samples < 1 || samples > 8) {
+    throw new Error('startSamples must be an integer from 1 through 8');
+  }
+
   const scans: RegionScanResult[] = [];
-  const candidates: StartCandidate[] = [];
+  const candidateByRoom = new Map<string, StartCandidate>();
 
   for (const shard of shards) {
     try {
-      onProgress?.(`Finding a starting search area on ${shard.name}...`);
-      const start = await api.userWorldStartRoom(shard.name);
-      const rawSeed = start.room[0];
+      onProgress?.(
+        `Sampling up to ${samples} starting search areas on ${shard.name}...`
+      );
 
-      if (!rawSeed) {
+      const seedRooms = new Set<string>();
+      for (let sample = 0; sample < samples; sample += 1) {
+        const start = await api.userWorldStartRoom(shard.name);
+        const rawSeed = start.room[0];
+        if (rawSeed) {
+          seedRooms.add(normalizeStartRoom(shard.name, rawSeed));
+        }
+      }
+
+      if (seedRooms.size === 0) {
         onProgress?.(
-          `Skipping ${shard.name}: no start-room hint returned.`
+          `Skipping ${shard.name}: no start-room hint returned across ${samples} sample(s).`
         );
         continue;
       }
 
-      const seedRoom = normalizeStartRoom(shard.name, rawSeed);
-      const scan = await scanRegion(
-        shard.name,
-        seedRoom,
-        radius,
-        (message) => onProgress?.(`[${shard.name}] ${message}`)
+      onProgress?.(
+        `${shard.name}: discovered ${seedRooms.size} unique search seed(s): ${[...seedRooms].join(', ')}`
       );
 
-      scans.push(scan);
+      for (const seedRoom of seedRooms) {
+        const scan = await scanRegion(
+          shard.name,
+          seedRoom,
+          radius,
+          (message) =>
+            onProgress?.(`[${shard.name}/${seedRoom}] ${message}`)
+        );
 
-      for (const room of scan.candidates.slice(0, 5)) {
-        try {
-          const spawn = await planInitialSpawn(
-            shard.name,
-            room.room.roomName,
-            api
-          );
+        scans.push(scan);
 
-          const density = shard.users / Math.max(shard.rooms, 1);
-          const densityPenalty = Math.min(8, density * 20);
-          const spawnPenalty = Math.min(8, spawn.score / 60);
-          const combinedScore = Number(
-            Math.max(
-              0,
-              room.total - densityPenalty - spawnPenalty
-            ).toFixed(1)
-          );
+        for (const room of scan.candidates.slice(0, 8)) {
+          try {
+            const spawn = await planInitialSpawn(
+              shard.name,
+              room.room.roomName,
+              api
+            );
 
-          candidates.push({
-            shard: shard.name,
-            seedRoom,
-            room,
-            spawn,
-            shardRooms: shard.rooms,
-            shardUsers: shard.users,
-            combinedScore
-          });
-        } catch (error) {
-          onProgress?.(
-            `Could not plan Spawn1 in ${shard.name}/${room.room.roomName}: ${error instanceof Error ? error.message : String(error)}`
-          );
+            const density = shard.users / Math.max(shard.rooms, 1);
+            const densityPenalty = Math.min(8, density * 20);
+            const spawnPenalty = Math.min(8, spawn.score / 60);
+            const combinedScore = Number(
+              Math.max(
+                0,
+                room.total - densityPenalty - spawnPenalty
+              ).toFixed(1)
+            );
+
+            const candidate: StartCandidate = {
+              shard: shard.name,
+              seedRoom,
+              room,
+              spawn,
+              shardRooms: shard.rooms,
+              shardUsers: shard.users,
+              combinedScore
+            };
+
+            const key = `${shard.name}/${room.room.roomName}`;
+            const existing = candidateByRoom.get(key);
+            if (
+              !existing ||
+              candidate.combinedScore > existing.combinedScore
+            ) {
+              candidateByRoom.set(key, candidate);
+            }
+          } catch (error) {
+            onProgress?.(
+              `Could not plan Spawn1 in ${shard.name}/${room.room.roomName}: ${error instanceof Error ? error.message : String(error)}`
+            );
+          }
         }
       }
     } catch (error) {
@@ -128,6 +158,8 @@ export async function findStartCandidates(
       );
     }
   }
+
+  const candidates = [...candidateByRoom.values()];
 
   candidates.sort(
     (a, b) =>

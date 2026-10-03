@@ -152,9 +152,20 @@ export function scoreRoom(
 
   let pressure = 0;
   for (const owner of nearbyOwners) {
-    const distanceWeight = Math.max(0, 7 - owner.nearestDistance) / 6;
-    const strengthWeight = owner.maxRcl / 8;
-    pressure += distanceWeight * strengthWeight * 4;
+    const distancePenalty =
+      owner.nearestDistance <= 1 ? 10 :
+      owner.nearestDistance === 2 ? 6 :
+      owner.nearestDistance === 3 ? 4 :
+      owner.nearestDistance === 4 ? 2 :
+      owner.nearestDistance === 5 ? 1 : 0.5;
+    const strengthWeight = clamp(owner.maxRcl / 8, 0.25, 1);
+    pressure += distancePenalty * strengthWeight;
+  }
+
+  // Start-area walls provide temporary breathing room, but an adjacent
+  // established empire is still a long-term strategic liability.
+  if (room.status === 'novice' || room.status === 'respawn') {
+    pressure *= 0.75;
   }
 
   pressure = clamp(pressure, 0, 12);
@@ -167,7 +178,14 @@ export function scoreRoom(
     strategy.reasons.push(
       `Nearest observed player: ${nearest.username}, ${nearest.nearestDistance} room(s) away, up to RCL ${nearest.maxRcl}.`
     );
-    if (pressure >= 7) {
+    if (
+      nearest.nearestDistance <= 1 &&
+      nearest.maxRcl >= 7
+    ) {
+      strategy.warnings.push(
+        'Adjacent high-RCL player is a major long-term launch risk.'
+      );
+    } else if (pressure >= 7) {
       strategy.warnings.push('Nearby established-player pressure is high.');
     }
   }
