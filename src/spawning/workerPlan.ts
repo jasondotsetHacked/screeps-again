@@ -113,7 +113,7 @@ export function planWorkerSpawn(
   if (body.length === 0) return null;
 
   return {
-    reason: population.effectiveWorkers === 0
+    reason: population.liveWorkers === 0 && population.spawningWorkers === 0
       ? 'bootstrap'
       : depleted ? 'critical-depletion' : 'normal',
     body,

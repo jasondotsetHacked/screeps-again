@@ -68,7 +68,7 @@ test('replacement lead excludes aging workers and retains undefined TTL workers'
   });
 });
 
-test('zero effective workers bootstrap with the smallest useful affordable body', () => {
+test('physically zero workers bootstrap with the smallest useful affordable body', () => {
   const plan = planWorkerSpawn(population(0), 200, capacity);
   assert.equal(plan?.reason, 'bootstrap');
   assert.deepEqual(plan?.body, [WORK, CARRY, MOVE]);
@@ -107,14 +107,31 @@ test('one aging worker in an otherwise healthy colony does not trigger an unders
   assert.equal(planWorkerSpawn(state, capacity, capacity)?.reason, 'normal');
 });
 
-test('all-aging workforce uses bootstrap because effective population is zero', () => {
+test('all-aging workforce recovers aggressively with a critical-depletion label', () => {
   const state = planWorkerPopulation({
     roomName, workers: [worker('aging', lead)], spawning: [],
     replacementLead: lead, target: 4
   });
   assert.equal(state.liveWorkers, 1);
   assert.equal(state.effectiveWorkers, 0);
-  assert.equal(planWorkerSpawn(state, 200, capacity)?.reason, 'bootstrap');
+  const plan = planWorkerSpawn(state, 200, capacity);
+  assert.equal(plan?.reason, 'critical-depletion');
+  assert.deepEqual(plan?.body, [WORK, CARRY, MOVE]);
+  assert.equal(plan?.cost, 200);
+  assert.deepEqual(
+    planWorkerSpawn(state, capacity, capacity)?.body,
+    buildWorkerBody(capacity)
+  );
+});
+
+test('a spawn-only workforce uses critical-depletion rather than bootstrap', () => {
+  const state = planWorkerPopulation({
+    roomName, workers: [], spawning: [{ name: 'spawning', memory }],
+    replacementLead: lead, target: 4
+  });
+  assert.equal(state.liveWorkers, 0);
+  assert.equal(state.spawningWorkers, 1);
+  assert.equal(planWorkerSpawn(state, 200, capacity)?.reason, 'critical-depletion');
 });
 
 test('worker targets retain the existing source-count and capacity policy', () => {
