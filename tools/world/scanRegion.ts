@@ -6,7 +6,7 @@ import {
   countWalkableNeighbors,
   type RoomPositionLike
 } from '../../shared/world/terrain';
-import { terrainPathCost } from '../../shared/world/pathing';
+import { terrainPathCostToRange } from '../../shared/world/pathing';
 import { getScreepsClient } from '../lib/screepsClient';
 import { scoreRoom } from './scoreRoom';
 import type {
@@ -103,11 +103,11 @@ async function inspectRoom(
     );
 
     const sourcePathCosts = anchor
-      ? sources.map((source) => terrainPathCost(encoded, anchor, source))
+      ? sources.map((source) => terrainPathCostToRange(encoded, anchor, source, 1))
       : sources.map(() => null);
 
     const controllerPathCost =
-      anchor && controller ? terrainPathCost(encoded, anchor, controller) : null;
+      anchor && controller ? terrainPathCostToRange(encoded, anchor, controller, 3) : null;
 
     return {
       ...summary,
