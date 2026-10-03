@@ -9,7 +9,7 @@ const rawCommand = process.env.SCREEPS_OPS_COMMAND ?? '';
 function clean(value: unknown): string {
   return String(value ?? '')
     .replace(/[\r\n|]+/g, ' ')
-    .replaceAll('@', '@\u200b')
+    .replace(/@/g, '@\u200b')
     .replace(/\x60/g, "'")
     .slice(0, 300);
 }
