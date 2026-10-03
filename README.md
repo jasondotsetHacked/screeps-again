@@ -41,6 +41,11 @@ The deploy command builds `dist/main.js` and uploads it to the Screeps code bran
 
 ## World intelligence
 
+The runtime now records compact versioned observations of visible rooms in private
+`Memory.world`, independently of colony ownership. See [world intelligence and the
+empire roadmap](docs/world-intelligence.md) for the schema, freshness/recovery
+contract, and staged plan. This foundation adds no scouts or strategic actions.
+
 Useful commands:
 
 ```bash

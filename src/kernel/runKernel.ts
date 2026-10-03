@@ -2,6 +2,7 @@ import { prepareColony, runColony, type ColonyObservation, type ColonyTick } fro
 import { cleanupDeadCreepMemory, initializeMemory } from '../memory/lifecycle';
 import { publishOpsSnapshot, recordOpsError } from '../ops/opsTelemetry';
 import { arbitrateSafety } from './arbitrateSafety';
+import { updateVisibleRoomIntel } from '../world/roomIntel';
 
 const STATUS_INTERVAL = 100;
 
@@ -23,6 +24,7 @@ export function runKernel(): void {
       recordOpsError('colony', room.name + '/observation', error);
     }
   }
+  updateVisibleRoomIntel(Object.values(Game.rooms), observations);
   const protectionActive = ownedRooms.some((room) => Boolean(room.controller?.safeMode));
   const winner = arbitrateSafety([...observations.values()].flatMap((colony) =>
     colony.safety.request ? [colony.safety.request] : []), protectionActive);

@@ -5,6 +5,7 @@ declare global {
       firstSeenTick: number;
     };
     ops?: OpsMemory;
+    world?: import('../../shared/world/intel').WorldIntelMemory;
   }
 
   interface OpsMemory {
