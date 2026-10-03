@@ -24,7 +24,7 @@ test('normalized observation shares population policy and gathers each input onc
   assert.equal(state.buildTargets[0].remaining, 1000);
   assert.equal(state.repairTargets[0].missingHits, 1);
   assert.deepEqual(state.energy, { available: 300, capacity: 300 });
-  assert.equal(state.controller?.downgradeLimit, 5000);
+  assert.equal(state.controller?.downgradeLimit, 10000);
   assert.equal(state.workers.length, 4);
   assert.equal(state.workerCreeps.length, 5);
   assert.deepEqual(state.population, {
@@ -39,7 +39,7 @@ test('normalized observation shares population policy and gathers each input onc
 });
 
 test('healthy, declining, dangerous and emergency buffers allocate increasing WORK service', () => {
-  const policies = [5000, 3900, 3400, 2999].map((ticks) => {
+  const policies = [10000, 7000, 4000, 2999].map((ticks) => {
     const f = fixture({ ticks, count: 5, work: 4 }); f.build();
     const state = observeColony(f.room);
     const demands = planWork(state);
@@ -183,6 +183,72 @@ test('mixed worker bodies leave normal upgrade room for other labor and unavaila
   assert.deepEqual(scheduleWorkers({ workers: [immobile] }, [demand('build')]), []);
   const stationary = { ...immobile, energy: 50, working: true };
   assert.equal(scheduleWorkers({ workers: [stationary] }, [demand('build')]).length, 1);
+});
+
+
+test('observation preserves asymmetric WORK, CARRY and MOVE capability', () => {
+  const f = fixture({ count: 1, work: 4, carry: 2, move: 1 });
+  const state = observeColony(f.room);
+  assert.deepEqual(
+    {
+      work: state.workers[0].work,
+      carry: state.workers[0].carry,
+      move: state.workers[0].move
+    },
+    { work: 4, carry: 2, move: 1 }
+  );
+
+  const buildAssignment = scheduleWorkers(
+    state,
+    [demand('asymmetric-build', { desired: 4, maximum: 4 })]
+  )[0];
+  assert.equal(buildAssignment.contribution, 4);
+
+  const refillAssignment = scheduleWorkers(
+    state,
+    [
+      demand('asymmetric-refill', {
+        kind: 'refill',
+        capability: 'carry',
+        desired: 2,
+        maximum: 2
+      })
+    ]
+  )[0];
+  assert.equal(refillAssignment.contribution, 2);
+});
+
+test('otherwise-idle healthy workers become explicit low-priority controller surplus', () => {
+  const f = fixture({ count: 5 });
+  const state = observeColony(f.room);
+  const demands = planWork(state);
+  const upgrade = demands.find((entry) => entry.kind === 'upgrade')!;
+
+  assert.equal(upgrade.desired, 1);
+  assert.equal(upgrade.maximum, 1);
+  assert.equal(upgrade.surplusPriority, 1);
+  assert.equal(upgrade.surplusMaximum, 5);
+
+  const assignments = scheduleWorkers(state, demands);
+  assert.equal(assignments.length, 5);
+  assert.ok(assignments.every((assignment) => assignment.kind === 'upgrade'));
+});
+
+test('surplus controller service waits until bounded colony work has had its chance', () => {
+  const f = fixture({ count: 5 });
+  f.build();
+  f.build('road', STRUCTURE_ROAD);
+  const state = observeColony(f.room);
+  const assignments = scheduleWorkers(state, planWork(state));
+
+  assert.equal(
+    assignments.filter((assignment) => assignment.kind === 'build').length,
+    4
+  );
+  assert.equal(
+    assignments.filter((assignment) => assignment.kind === 'upgrade').length,
+    1
+  );
 });
 
 test('normalized spawning representations are deduplicated and never scheduled as live labor', () => {

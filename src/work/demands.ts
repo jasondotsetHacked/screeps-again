@@ -23,4 +23,10 @@ export interface WorkDemand {
   maximum?: number;
   capability: WorkCapability;
   emergency?: boolean;
+  // Optional third-pass service. After all bounded desired work has been
+  // scheduled, otherwise-idle workers may continue this demand up to the
+  // separate surplus maximum. This keeps opportunistic work explicit in the
+  // colony plan instead of hiding fallback decisions inside creep execution.
+  surplusPriority?: number;
+  surplusMaximum?: number;
 }

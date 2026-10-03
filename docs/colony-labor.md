@@ -53,24 +53,30 @@ BUILD_POWER; repair uses at most 20%, bounded by damage up to the existing 45%
 health threshold divided by REPAIR_POWER. These are simple allocation budgets.
 
 The pure scheduler sorts demands once by descending priority and ID. It first
-reserves each minimum, then fills desired budgets with remaining workers. Each
-worker is consumed at most once. A candidate score favors energized workers
+reserves each minimum, then fills bounded desired budgets with remaining workers.
+Each worker is consumed at most once. A candidate score favors energized workers
 already working (+20), proximity (minus Chebyshev range), useful capability,
 and smaller overshoot (minus two per excess capability unit); names break ties.
 This favors retaining a nearby working creep without persistent assignments.
 
 Workers are indivisible: desired/minimum may be exceeded by the last whole body,
-but never the hard maximum. Once desired is met, no more workers go to that
-demand. Unmet minima and desired budgets are visible in telemetry. Scheduling
-cost is O(D log D + D×W + W²), with no pathfinding or global optimization.
+but never the normal hard maximum. After all bounded desired work has had a chance
+to schedule, demands may explicitly opt into a third low-priority surplus pass
+with their own surplus maximum. The controller upgrade demand uses this only as a
+productive sink for workers that would otherwise be idle; creep execution still
+contains no fallback task selector. Unmet minima and desired budgets remain
+visible in telemetry. Scheduling cost remains small and greedy, with no
+pathfinding or global optimization.
 
 Normal desired-pass priority retains spawn → extension → tower refill, then
-extension → tower → container → other non-road construction, repair (lowest
-health first), and roads. Controller minimum service is reserved before optional
-throughput; remaining controller demand runs before construction. Critically
-depleted colonies give spawn/extension minimum refill service priority 99.
-Hostile-present tower refill has priority 98 and minimum service. These can
-precede non-emergency controller service when the workforce cannot satisfy both.
+controller desired service, extension → tower → container → other non-road
+construction, repair (lowest health first), and roads. Controller minimum service
+is reserved before optional throughput. Critically depleted colonies give
+spawn/extension minimum refill service priority 99. Hostile-present tower refill
+has priority 98 and minimum service. These can precede non-emergency controller
+service when the workforce cannot satisfy both. Only after all bounded desired
+work has had its scheduling opportunity may otherwise-idle workers take the
+controller's very-low-priority surplus service.
 
 ## Controller policy
 
@@ -91,11 +97,14 @@ other tasks. Maximum allocation is `min(normal budget, desired + largest WORK
 body - 1)`, giving the last indivisible worker rounding slack. Minima are clipped
 to desired. With zero workers there is no executable upgrade demand.
 
-The absolute floors matter at RCL2, whose timer is only 5,000 ticks: healthy starts
-at 4,000, declining at 3,500–3,999, dangerous at 3,000–3,499, and emergency below
-3,000. At RCL3 the normal boundaries are 8,000 and 5,000. A five-worker colony
-with four WORK per worker requests 4, 6, 9, or 20 WORK across these bands. Healthy
-service assigns approximately one worker, leaving useful construction/refill labor.
+The live downgrade limit at RCL2 is 10,000 ticks. A controller that has just
+leveled is initialized to 50% of that limit (5,000 ticks), but the policy uses
+the full live RCL limit: comfortable starts at 8,000, declining is 5,000–7,999,
+dangerous is 3,000–4,999, and emergency is strictly below 3,000. At RCL3 the
+limit is 20,000, so the normal boundaries are 16,000 and 10,000. A five-worker
+colony with four WORK per worker requests 4, 6, 9, or 20 WORK across the four
+RCL2 bands before optional surplus service. Healthy bounded service assigns
+approximately one worker while other work exists.
 
 The official [controller documentation](https://docs.screeps.com/control.html)
 describes the varying RCL downgrade timers. The [API documentation](https://docs.screeps.com/api/#Creep.upgradeController)
@@ -132,14 +141,15 @@ Construction still places its own sites and performs its own periodic scans.
 Towers remain independent of worker scheduling. There is no miner/hauler role,
 remote mining, reservation, storage logistics, expansion, or rate forecasting.
 
-Known limits: a greedy scheduler may leave a budget unsatisfied when whole bodies
-cannot fit its hard cap, and may change assignments as readiness changes. Refill
-budgets use CARRY capacity rather than actual transfer throughput; demand is
-reobserved next tick. A full worker can idle once all bounded demands are served.
-Normal service can be starved during severe recovery or defense scarcity, and
-energy scarcity/travel can limit delivered controller work. Boosts and RCL8's
-upgrade rate limit are not modeled as throughput constraints. Live CPU and behavior
-have not been benchmarked; this change is validated locally without deployment.
+Known limits: a greedy scheduler may leave a bounded budget unsatisfied when
+whole bodies cannot fit its hard cap, and may change assignments as readiness
+changes. Refill budgets use CARRY capacity rather than actual transfer throughput;
+demand is reobserved next tick. Otherwise-idle eligible generalists are sent to
+explicit low-priority controller surplus service, but energy scarcity and travel
+can still limit delivered work. Normal controller service can be starved during
+severe recovery or defense scarcity. Boosts and RCL8's upgrade rate limit are not
+modeled as throughput constraints. Live CPU and behavior have not been benchmarked;
+this change is validated locally without deployment.
 
 Future miners, haulers and remotes can add demand kinds, capability measurements,
 eligibility and energy-acquisition routes without restoring task selection inside
