@@ -68,6 +68,8 @@ The tool:
 
 Use `--radius=N` with a value from 1 through 6 to change the regional search radius.
 
+`shardX` is excluded by default because controller actions there require active Access Key access. Only include it intentionally with `--allow-shard-x`.
+
 The scoring model is deliberately explainable and provisional. It is a decision aid that we can improve as the bot gathers more world history.
 
 ## Account reboot / first spawn
@@ -80,7 +82,7 @@ First run a dry run:
 npm run world:reboot
 ```
 
-This scans the current world and prints the selected shard/room/Spawn1 tile. It does not mutate the account.
+This scans the current world and prints the selected shard/room/Spawn1 tile. It does not mutate the account. The default reboot path excludes premium `shardX`; use `--allow-shard-x` only if you intentionally have active Access Key access.
 
 Before committing a spawn:
 

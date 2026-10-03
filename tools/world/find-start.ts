@@ -4,14 +4,19 @@ const radiusFlag = process.argv.find((argument) =>
   argument.startsWith('--radius=')
 );
 const radius = radiusFlag ? Number(radiusFlag.split('=')[1]) : 5;
+const allowShardX = process.argv.includes('--allow-shard-x');
 
 if (!Number.isInteger(radius) || radius < 1 || radius > 6) {
   throw new Error('--radius must be an integer from 1 through 6');
 }
 
-const result = await findStartCandidates(radius, (message) => {
-  console.log(`[world] ${message}`);
-});
+const result = await findStartCandidates(
+  radius,
+  (message) => {
+    console.log(`[world] ${message}`);
+  },
+  { allowShardX }
+);
 
 console.log('');
 console.log(`Account world status: ${JSON.stringify(result.worldStatus)}`);

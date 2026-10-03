@@ -4,6 +4,7 @@ import { getScreepsClient } from '../lib/screepsClient';
 import { findStartCandidates, type StartCandidate } from './findStart';
 
 const commit = process.argv.includes('--commit');
+const allowShardX = process.argv.includes('--allow-shard-x');
 const radiusFlag = process.argv.find((argument) =>
   argument.startsWith('--radius=')
 );
@@ -135,13 +136,23 @@ if (initialStatus.status === 'normal') {
   process.exit(0);
 }
 
-const result = await findStartCandidates(radius, (message) => {
-  console.log(`[reboot] ${message}`);
-});
+const result = await findStartCandidates(
+  radius,
+  (message) => {
+    console.log(`[reboot] ${message}`);
+  },
+  { allowShardX }
+);
 
 const selected = result.candidates[0];
 if (!selected) {
   throw new Error('No safe starting-room candidate was found.');
+}
+
+if (selected.shard === 'shardX' && !allowShardX) {
+  throw new Error(
+    'Refusing to select shardX without --allow-shard-x because controller actions there require active Access Key access.'
+  );
 }
 
 console.log('');
