@@ -121,7 +121,7 @@ export function publishOpsSnapshot(
       constructionSites: sites.length,
       hostiles: state?.hostiles.length ?? room.find(FIND_HOSTILE_CREEPS).length,
       labor: colony ? summarizeLabor(colony) : undefined,
-      safety: colony ? { requested: colony.safety.activateSafeMode,
+      safety: colony ? { requested: Boolean(colony.safety.request), attempted: colony.safety.attempted,
         accepted: colony.safety.accepted, reason: colony.safety.reason } : undefined,
       spawns: spawns.map((spawn) => ({
         name: spawn.name,

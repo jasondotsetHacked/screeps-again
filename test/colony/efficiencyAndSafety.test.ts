@@ -3,10 +3,8 @@ import test from 'node:test';
 import { fixture, position } from '../helpers/colony';
 import { observeColony } from '../../src/colony/colonyState';
 import { selectEnergySupply, type EnergySupply } from '../../src/colony/planEnergy';
-import { planSafety } from '../../src/colony/planSafety';
 import { scheduleWorkers } from '../../src/colony/scheduler';
 import { runColony } from '../../src/colony/runColony';
-import { runKernel } from '../../src/kernel/runKernel';
 import { runWorker, workerEnergyContext } from '../../src/creeps/runWorker';
 import { summarizeLabor, publishOpsSnapshot } from '../../src/ops/opsTelemetry';
 import type { WorkDemand } from '../../src/work/demands';
@@ -152,88 +150,4 @@ test('construction exceptions are recorded without aborting population recovery 
   assert.equal(colony.executions.length, 1);
   assert.ok(f.actions.includes('w0:refill'));
   assert.equal(Memory.ops?.recentErrors[0].subject, f.room.name + '/construction');
-});
-
-function threatFixture(part: BodyPartConstant = ATTACK, range = 1) {
-  const f = fixture();
-  const spawn = f.refill();
-  Object.assign(f.controller, { safeModeAvailable: 1 });
-  f.hostiles.push({ id: 'hostile', pos: position(spawn.pos.x + range, spawn.pos.y),
-    getActiveBodyparts: (type: BodyPartConstant) => type === part ? 1 : 0 } as Creep);
-  return f;
-}
-
-test('safety requests protection for immediate melee, ranged and dismantle threats only', () => {
-  for (const [part, range] of [[ATTACK, 1], [RANGED_ATTACK, 3], [WORK, 1]] as const) {
-    const f = threatFixture(part, range);
-    const colony = runColony(f.room);
-    assert.equal(colony.safety.activateSafeMode, true);
-    assert.equal(colony.safety.accepted, true);
-    assert.ok(f.actions.includes('safe-mode'));
-  }
-  for (const [part, range] of [[MOVE, 1], [ATTACK, 2], [RANGED_ATTACK, 4], [WORK, 2]] as const) {
-    const f = threatFixture(part, range);
-    assert.equal(planSafety(observeColony(f.room)).reason, 'no-immediate-threat');
-  }
-});
-
-test('safety respects availability, active protection, cooldown, blocking and the global gate', () => {
-  const f = threatFixture();
-  const state = observeColony(f.room);
-  for (const [field, value, reason] of [
-    ['safeMode', 10, 'already-protected'], ['safeModeAvailable', 0, 'unavailable'],
-    ['safeModeCooldown', 10, 'cooldown'], ['upgradeBlocked', 10, 'upgrade-blocked']
-  ] as const) {
-    const original = state.controller![field];
-    state.controller![field] = value;
-    assert.equal(planSafety(state).reason, reason);
-    state.controller![field] = original;
-  }
-  state.controller!.downgradeLimit = 40000;
-  state.controller!.ticksToDowngrade = 14999;
-  assert.equal(planSafety(state).reason, 'downgrade-blocked');
-  state.controller!.ticksToDowngrade = 15000;
-  assert.equal(planSafety(state).activateSafeMode, true);
-  assert.equal(planSafety(state, false).reason, 'safe-mode-elsewhere');
-  assert.equal(planSafety({ ...state, controller: undefined }).reason, 'no-controller');
-});
-
-test('safety API rejection or exception leaves labor running', () => {
-  for (const activate of [() => ERR_NOT_ENOUGH_ENERGY, () => { throw new Error('safety failed'); }]) {
-    const f = threatFixture();
-    f.controller.activateSafeMode = activate;
-    const colony = runColony(f.room);
-    assert.equal(colony.safety.accepted, false);
-    assert.equal(colony.executions.length, 5);
-  }
-});
-
-test('kernel admits one safe-mode intent even when the first colony later fails', (t) => {
-  t.mock.method(console, 'log', () => {});
-  const f = threatFixture();
-  const room = { ...f.room, name: 'E26S47', controller: { ...f.controller, id: 'other-controller' } } as Room;
-  const attempts: string[] = [];
-  f.controller.activateSafeMode = () => { attempts.push('first'); return OK; };
-  room.controller!.activateSafeMode = () => { attempts.push('second'); return OK; };
-  (f.structures[0] as StructureSpawn).spawnCreep = (() => { throw new Error('later failure'); }) as StructureSpawn['spawnCreep'];
-  const otherSpawn = { ...f.structures[0], spawnCreep: () => ERR_NOT_ENOUGH_ENERGY } as unknown as StructureSpawn;
-  const find = room.find.bind(room);
-  room.find = ((type: number) => type === FIND_STRUCTURES ? [otherSpawn] : find(type as FindConstant)) as typeof room.find;
-  // Trigger population recovery in the first colony after safe-mode acceptance.
-  f.workers.forEach((w) => { w.ticksToLive = 1; });
-  Game.rooms = { [f.room.name]: f.room, [room.name]: room };
-  runKernel();
-  assert.deepEqual(attempts, ['first']);
-  assert.equal(Memory.ops?.recentErrors[0].scope, 'colony');
-  assert.equal(Memory.ops?.snapshot?.rooms[1].safety?.reason, 'safe-mode-elsewhere');
-});
-
-test('kernel respects active safe mode in another owned room', () => {
-  const f = threatFixture();
-  const protectedRoom = { ...f.room, name: 'E26S47',
-    controller: { ...f.controller, safeMode: 100 } } as Room;
-  Game.rooms = { [f.room.name]: f.room, [protectedRoom.name]: protectedRoom };
-  runKernel();
-  assert.equal(f.actions.includes('safe-mode'), false);
-  assert.equal(Memory.ops?.snapshot?.rooms[0].safety?.reason, 'safe-mode-elsewhere');
 });

@@ -89,7 +89,7 @@ declare global {
     workerPopulation?: OpsWorkerPopulationSnapshot;
     infrastructure?: OpsInfrastructureSnapshot;
     labor?: OpsLaborSnapshot;
-    safety?: { requested: boolean; accepted: boolean; reason: import('../colony/planSafety').SafetyPlan['reason'] };
+    safety?: { requested: boolean; attempted?: boolean; accepted: boolean; reason: import('../colony/planSafety').SafetyPlan['reason'] };
   }
 
   interface OpsSpawnSnapshot {

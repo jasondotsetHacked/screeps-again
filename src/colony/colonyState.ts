@@ -2,6 +2,7 @@ import { buildWorkerBody, replacementLeadTicks } from '../spawning/workerBody';
 import { planWorkerPopulation, workerTarget, type WorkerPopulation } from '../spawning/workerPlan';
 import type { WorkTarget, WorkPosition } from '../work/demands';
 import type { EnergySupply } from './planEnergy';
+import { observeSafety, type CriticalTarget, type HostileThreat, type SafetyTower } from './safetyState';
 
 export interface ColonyWorker {
   name: string;
@@ -34,8 +35,9 @@ export interface ColonyState {
   hostiles: readonly Creep[];
   droppedEnergy: Resource[];
   energySupplies: readonly EnergySupply[];
-  hostileThreats: readonly { pos: WorkPosition; melee: boolean; ranged: boolean; dismantle: boolean }[];
-  criticalTargets: readonly WorkTarget[];
+  hostileThreats: readonly HostileThreat[];
+  criticalTargets: readonly CriticalTarget[];
+  defenseTowers: readonly SafetyTower[];
   creeps: readonly Creep[];
   workerCreeps: readonly Creep[];
   workers: readonly ColonyWorker[];
@@ -121,11 +123,7 @@ export function observeColony(room: Room): ColonyState {
     energy: { available: room.energyAvailable, capacity: room.energyCapacityAvailable },
     sources, structures, constructionSites, spawns, towers, hostiles, droppedEnergy, creeps,
     energySupplies,
-    hostileThreats: hostiles.map((hostile) => ({ pos: workTarget(hostile).pos,
-      melee: hostile.getActiveBodyparts(ATTACK) > 0,
-      ranged: hostile.getActiveBodyparts(RANGED_ATTACK) > 0,
-      dismantle: hostile.getActiveBodyparts(WORK) > 0 })),
-    criticalTargets: [...spawns, ...towers].map(workTarget),
+    ...observeSafety(room, structures, hostiles, spawns, towers),
     workerCreeps, workers, replacementLead,
     population: planWorkerPopulation({
       roomName: room.name, workers: workerCreeps, spawning, replacementLead,

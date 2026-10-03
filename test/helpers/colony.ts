@@ -4,6 +4,26 @@ Object.assign(globalThis, {
   MOVE: 'move',
   ATTACK: 'attack',
   RANGED_ATTACK: 'ranged_attack',
+  CLAIM: 'claim',
+  HEAL: 'heal',
+  TOUGH: 'tough',
+  ATTACK_POWER: 30,
+  RANGED_ATTACK_POWER: 10,
+  DISMANTLE_POWER: 50,
+  HEAL_POWER: 12,
+  RANGED_HEAL_POWER: 4,
+  TOWER_ENERGY_COST: 10,
+  TOWER_POWER_ATTACK: 600,
+  TOWER_OPTIMAL_RANGE: 5,
+  TOWER_FALLOFF_RANGE: 20,
+  TOWER_FALLOFF: 0.75,
+  BOOSTS: {
+    attack: { XUH2O: { attack: 4 } }, work: { XZH2O: { dismantle: 4 } },
+    ranged_attack: { XKHO2: { rangedAttack: 4 } }, heal: { XLHO2: { heal: 4, rangedHeal: 4 } },
+    tough: { XGHO2: { damage: 0.3 } }
+  },
+  OBSTACLE_OBJECT_TYPES: ['spawn', 'extension', 'tower', 'constructedWall', 'controller'],
+  STRUCTURE_WALL: 'constructedWall',
   RESOURCE_ENERGY: 'energy',
   CREEP_SPAWN_TIME: 3,
   BODYPART_COST: { work: 100, carry: 50, move: 50 },
@@ -48,11 +68,11 @@ Object.assign(globalThis, {
   ERR_NOT_ENOUGH_ENERGY: -6
 });
 
-export function position(x = 10, y = 10): RoomPosition {
+export function position(x = 10, y = 10, roomName = 'E25S47'): RoomPosition {
   return {
     x,
     y,
-    roomName: 'E25S47',
+    roomName,
     getRangeTo: (target: { pos: RoomPosition }) =>
       Math.max(Math.abs(x - target.pos.x), Math.abs(y - target.pos.y)),
     findClosestByRange: (targets: { pos: RoomPosition }[]) =>
@@ -79,9 +99,11 @@ export function fixture(
     energy?: number;
     ticks?: number;
     level?: number;
+    roomName?: string;
   } = {}
 ) {
   const actions: string[] = [];
+  const roomName = options.roomName ?? 'E25S47';
   const calls = new Map<number, number>();
   const structures: Structure[] = [];
   const sites: ConstructionSite[] = [];
@@ -93,7 +115,7 @@ export function fixture(
     id: 'source-a',
     energy: 3000,
     ticksToRegeneration: 300,
-    pos: position(5, 5)
+    pos: position(5, 5, roomName)
   } as Source;
   const controller = {
     id: 'controller',
@@ -102,10 +124,10 @@ export function fixture(
     ticksToDowngrade: options.ticks ?? 10000,
     safeModeAvailable: 0,
     activateSafeMode: () => { actions.push('safe-mode'); return OK; },
-    pos: position(30, 30)
+    pos: position(30, 30, roomName)
   } as StructureController;
   const room = {
-    name: 'E25S47',
+    name: roomName,
     energyAvailable: 300,
     energyCapacityAvailable: 300,
     controller,
@@ -153,9 +175,13 @@ export function fixture(
         working: true
       },
       room,
-      pos: position(10 + index, 10),
+      pos: position(10 + index, 10, roomName),
       ticksToLive: 1000,
       spawning: false,
+      fatigue: 0,
+      body: [...Array.from({ length: workParts }, () => ({ type: WORK, hits: 100 })),
+        ...Array.from({ length: carryParts }, () => ({ type: CARRY, hits: 100 })),
+        ...Array.from({ length: moveParts }, () => ({ type: MOVE, hits: 100 }))],
       hits: 100,
       hitsMax: 100,
       getActiveBodyparts: (part: BodyPartConstant) => {
@@ -228,8 +254,11 @@ export function fixture(
       name: id,
       my: true,
       structureType: type,
-      pos: position(11, 11),
+      pos: position(11, 11, roomName),
       spawning: null,
+      hits: 5000,
+      hitsMax: 5000,
+      isActive: () => true,
       store: {
         getFreeCapacity: () => freeEnergy,
         getUsedCapacity: () => 300 - freeEnergy,
@@ -249,7 +278,7 @@ export function fixture(
     const target = {
       id,
       structureType: type,
-      pos: position(15, 15),
+      pos: position(15, 15, roomName),
       progress: 0,
       progressTotal: remaining
     } as ConstructionSite;
@@ -263,7 +292,7 @@ export function fixture(
       structureType: STRUCTURE_CONTAINER,
       hits: 44,
       hitsMax: 100,
-      pos: position(20, 20),
+      pos: position(20, 20, roomName),
       store: { getUsedCapacity: () => 0, getFreeCapacity: () => 2000, getCapacity: () => 2000 }
     } as unknown as StructureContainer;
     structures.push(target);

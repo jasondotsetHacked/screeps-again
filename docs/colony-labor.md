@@ -14,9 +14,13 @@ observeColony(room)
 ```
 
 `main.ts` still only invokes the kernel. The kernel isolates room errors, collects
-tick results, and publishes sanitized ops telemetry. `runColony` recovers worker
-memory, observes once, runs towers, a separate safety decision, construction-site placement and spawning,
-then plans, schedules, and executes workers with individual error isolation.
+tick results, and publishes sanitized ops telemetry. `prepareColony` recovers
+worker memory, observes once, and emits a pure safety request. The kernel collects
+all requests, arbitrates, and executes at most one safe-mode activation. It then
+passes each observation to `runColony`, which runs towers, construction-site
+placement and spawning, then plans, schedules, and executes workers with individual
+error isolation. A later execution failure cannot discard an already considered
+safety request; an observation failure is isolated to its room.
 Construction exceptions are recorded without aborting spawning or labor. Worker
 exceptions remain individually isolated. New construction sites enter labor planning on the next observation, one tick
 after placement. Construction placement rules are unchanged.
@@ -25,7 +29,7 @@ after placement. Construction placement rules are unchanged.
 
 `ColonyState` contains the room, controller ID/position/level/downgrade buffer and
 RCL timer limit, room energy, sources, structures, sites, owned spawns/towers,
-hostiles and their active attack capabilities, critical owned spawn/tower targets,
+hostiles and their active combat capabilities, critical owned spawn/tower/controller targets,
 safe-mode eligibility, local creeps, home-worker objects, normalized energy supplies,
 normalized eligible
 worker capabilities/positions/energy, and the existing population/replacement
@@ -157,18 +161,8 @@ Bootstrap bodies, critical-depletion spawning, full-body replacement waiting,
 replacement lead time, spawning deduplication, memory recovery, controller
 emergency protection, tower attack/heal/repair decisions, error isolation and
 ops publication remain. Towers act separately before site placement.
-`planSafety` requests safe mode only when an active melee/dismantle hostile is
-within one tile, or a ranged hostile within three tiles, of an owned spawn or
-tower. Harmless scouts and distant armed creeps do not trigger it. Availability,
-current protection, cooldown, upgrade blocking, and the engine's downgrade
-eligibility rule are respected. The kernel gates one accepted safe-mode intent
-across owned rooms, including when the requesting colony later throws, so a
-second request cannot replace the first. Eligibility follows the official
-[engine safe-mode checks](https://github.com/screeps/engine/blob/master/src/processor/intents/controllers/activateSafeMode.js).
-Failed safety actions do not abort labor.
-This is a conservative last-resort structure policy, not a defense planner or
-a prediction of whether towers will defeat the threat. No account
-reboot, spawn placement, or deployment is part of this migration.
+Safety policy and arbitration are described below. No account reboot, spawn
+placement, or deployment is part of this migration.
 
 Generalist workers and self-harvesting source allocation remain transitional.
 Construction still places its own sites and performs its own periodic scans.
@@ -193,6 +187,62 @@ workers. Targets already carry room positions; cross-room travel and remote
 population ownership require explicit future policy. Stationary workers will need
 logistics rather than the transitional self-harvesting eligibility rule.
 
+## Safety requests and global arbitration
+
+`observeSafety` projects active body damage (including relevant boosts), healing,
+CLAIM and movement capability, fatigue, hostile health/shields, owned barrier
+health, and tower energy/activity. It reuses room scans; only a nearby CLAIM
+approach needs a local terrain check. No combat pathfinding is added.
+
+For owned spawns/towers, potential incoming damage combines the larger of melee
+or dismantle damage with ranged damage, summed across nearby attackers. An
+unfatigued mobile attacker may close one tile before the next tick, so melee/
+dismantle reaches two tiles and ranged reaches four for this warning. Request
+protection when `(structure hits + owned rampart hits) / incoming damage <= 20`
+ticks. Healthy structures and strong barriers therefore do not spend a charge
+for proximity alone; weak barriers do not suppress protection indefinitely.
+
+An eligible active, energized, unmodified tower may remove a structure threat
+without safe mode only when every attacker is estimated to die to this tick's
+actual closest-target tower allocation and the structure survives a full incoming
+burst. Estimates include tower falloff, all in-range healing, and a conservative
+TOUGH reduction applied to the entire damage amount. Hostiles under ramparts or
+active effects receive no kill credit; towers with active effects receive no
+credit. A close decoy cannot let the same tower promise multiple kills. This
+is a conservative heuristic, not a combat simulator or a claim of guaranteed kills.
+
+Controller threats are distinct: only active CLAIM can attack the controller.
+An adjacent claimer requests urgent protection. A mobile, unfatigued claimer at
+range two also requests protection if it can take one walkable step into attack
+range; terrain walls, blocking structures, and private owned ramparts are respected.
+A barrier breakable by the current in-range hostile damage is treated as an
+unsafe approach, including a supporting dismantler opening the tile.
+CLAIM requests do not rely on tower kills. Range two matters because the engine
+applies [controller attack blocking](https://github.com/screeps/engine/blob/master/src/processor/intents/creeps/attackController.js)
+before [committing safe-mode activation](https://github.com/screeps/engine/blob/master/src/processor/intents/controllers/tick.js).
+An already adjacent attacker can cancel an activation whose API call returned OK.
+First observation after arrival, portals, and unexpected movement can still miss
+that window; an accepted intent must never be interpreted as confirmed protection.
+
+Colony eligibility retains availability, current protection, cooldown, upgrade
+blocking, and the official [downgrade eligibility rule](https://github.com/screeps/engine/blob/master/src/processor/intents/controllers/activateSafeMode.js).
+`arbitrateSafety` selects among all eligible requests before any activation:
+lowest projected deadline first, then asset value (sole spawn 4, controller 3,
+additional spawn 2, tower 1), then higher RCL, then stable room/target IDs. CLAIM
+deadlines are zero when adjacent and one when approaching. Charges belong to
+individual controllers; only one room per shard can have active safe mode.
+Existing protection anywhere prevents another request. At most one activation
+is attempted per tick, and rejected/throwing actions do not interrupt colony
+labor. A rejected winner is reconsidered next tick, not replaced by multiple
+activation attempts in the same tick.
+
+Known safety limits: the 20-tick horizon assumes current hostile damage continues;
+it does not forecast routes, new reinforcements, repairs, or diplomacy. Structural
+approach uses range rather than pathfinding. The global ranking is explicit and
+deterministic, but not a strategic empire valuation. No policy can guarantee
+survival against an already executing lethal burst or an already landed controller
+attack. These policies are tested locally; live game behavior is still unmeasured.
+
 ## Observability and verification
 
 Every existing ops snapshot interval includes total demands, controller emergency,
@@ -203,7 +253,11 @@ acquisition, travel, accepted work, and blocked execution. `acceptedWorkIntents`
 counts OK action responses; the engine resolves those intents later, so this
 does not measure delivered work or throughput. Failed movement also reports
 blocked execution. A compact safety reason/request/accepted result appears in
-the room snapshot. The ops formatter accepts older snapshots without these fields.
+the private room snapshot, with a separate attempted flag distinguishing a request
+from the globally selected action. Public room output only reports `no action`,
+`activation accepted`, or `activation rejected`; eligibility/threat/arbitration
+reasons and legacy safety exception messages are redacted. The ops formatter
+accepts older snapshots without the new fields.
 Summaries expose no raw objects, arbitrary Memory, console
 output, or per-target assignment list. The public read-only command allowlist and
 credential model are unchanged. `/screeps room` and `/screeps snapshot` show labor.
@@ -211,7 +265,7 @@ credential model are unchanged. `/screeps room` and `/screeps snapshot` show lab
 Tests cover observation/population reuse, controller bands, scheduler limits and
 determinism, mixed work execution, acquisition with every assignment kind, source
 load balancing, energy selection/reservations, safe-mode eligibility and the
-cross-room gate, construction exception isolation, emergency partial-load
+global arbitration, construction exception isolation, emergency partial-load
 behavior, stale targets, and sanitized telemetry,
 alongside the existing recovery and security tests. Run `npm run check` for
 typechecking, the full test suite, and the runtime bundle. A small multi-tick
@@ -221,3 +275,5 @@ It checks ongoing construction alongside upgrading, depleted-source recovery,
 emergency recovery from stored energy, and new targets after completion. It does
 not model terrain, collisions, fatigue, boosts, hostile damage, or spawning;
 existing spawning/recovery tests remain authoritative for population behavior.
+Separate safety timing tests model start-of-tick controller attack range and
+attack blocking before pending activation, including the already-adjacent race.

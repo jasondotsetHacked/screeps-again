@@ -1,4 +1,5 @@
 import { writeFile } from 'node:fs/promises';
+import { pathToFileURL } from 'node:url';
 import { getScreepsClient, withScreepsRetry } from '../lib/screepsClient';
 import { opsHelp, parseOpsCommand } from './commands';
 
@@ -52,7 +53,7 @@ function formatErrors(ops: OpsMemory): string {
         '] ' +
         clean(error.subject) +
         ': ' +
-        clean(error.message)
+        clean(error.subject.endsWith('/safety') ? 'Safe-mode activation failed' : error.message)
     )
   ].join('\n');
 }
@@ -134,7 +135,7 @@ function laborText(labor: OpsLaborSnapshot | undefined): string {
         ', accepted work intents ' + entry.acceptedWorkIntents)).join('; ');
 }
 
-function formatRoom(room: OpsRoomSnapshot, snapshot: OpsSnapshot): string {
+export function formatRoom(room: OpsRoomSnapshot, snapshot: OpsSnapshot): string {
   const roomCreeps = snapshot.creeps.filter(
     (creep) => creep.room === room.name || creep.home === room.name
   );
@@ -171,8 +172,8 @@ function formatRoom(room: OpsRoomSnapshot, snapshot: OpsSnapshot): string {
     '- Energy: **' + room.energyAvailable + '/' + room.energyCapacityAvailable + '**',
     '- Controller downgrade: **' + (room.ticksToDowngrade ?? 'n/a') + ' ticks**',
     '- Safe mode: **' + (room.safeMode ?? 'inactive') + '**',
-    ...(room.safety ? ['- Safety decision: ' + clean(room.safety.reason) +
-      (room.safety.requested ? '; activation ' + (room.safety.accepted ? 'intent accepted' : 'request rejected') : '')] : []),
+    ...(room.safety ? ['- Safety action: ' + (room.safety.accepted ? 'activation accepted' :
+      (room.safety.attempted ?? room.safety.requested) ? 'activation rejected' : 'no action')] : []),
     '- Worker population: **' + workerPopulationText(room.workerPopulation) + '**',
     '- Labor: ' + laborText(room.labor),
     '- Extensions: **' + structureProgressText(room.infrastructure?.extensions) + '**',
@@ -186,7 +187,7 @@ function formatRoom(room: OpsRoomSnapshot, snapshot: OpsSnapshot): string {
   ].join('\n');
 }
 
-function formatSnapshot(ops: OpsMemory): string {
+export function formatSnapshot(ops: OpsMemory): string {
   const snapshot = ops.snapshot;
   if (!snapshot) {
     return '### Screeps Ops\n\nNo runtime snapshot has been published yet.';
@@ -383,7 +384,7 @@ async function main(): Promise<void> {
   await writeFile(RESPONSE_FILE, output, 'utf8');
 }
 
-main().catch(async (error: unknown) => {
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main().catch(async (error: unknown) => {
   const status =
     typeof error === 'object' &&
     error !== null &&

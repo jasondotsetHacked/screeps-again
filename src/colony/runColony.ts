@@ -10,30 +10,30 @@ import { scheduleWorkers } from './scheduler';
 import type { WorkDemand } from '../work/demands';
 import type { WorkerAssignment } from '../work/assignments';
 import type { WorkerExecution } from '../work/execution';
-import { planSafety, type SafetyPlan } from './planSafety';
+import { planSafety, type SafetyOutcome } from './planSafety';
+
+export interface ColonyObservation {
+  state: ColonyState;
+  safety: SafetyOutcome;
+}
 
 export interface ColonyTick {
   state: ColonyState;
   demands: WorkDemand[];
   assignments: WorkerAssignment[];
   executions: WorkerExecution[];
-  safety: SafetyPlan & { accepted: boolean };
+  safety: SafetyOutcome;
 }
 
-export function runColony(room: Room, canActivateSafeMode = true,
-  activateSafeMode: () => number = () => room.controller!.activateSafeMode()): ColonyTick {
+export function prepareColony(room: Room): ColonyObservation {
   recoverWorkerMemory(room);
-
   const state = observeColony(room);
+  return { state, safety: { ...planSafety(state), attempted: false, accepted: false } };
+}
+
+export function runColony(room: Room, observation = prepareColony(room)): ColonyTick {
+  const { state, safety } = observation;
   runTowers(state);
-  const safety = { ...planSafety(state, canActivateSafeMode), accepted: false };
-  if (safety.activateSafeMode) {
-    try {
-      safety.accepted = activateSafeMode() === OK;
-    } catch (error) {
-      recordOpsError('colony', room.name + '/safety', error);
-    }
-  }
   // Preserve tower-first survival behavior. Site placement is transitional;
   // newly placed sites enter the next tick's shared observation.
   try {
