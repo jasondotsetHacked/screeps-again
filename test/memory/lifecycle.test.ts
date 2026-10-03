@@ -6,15 +6,15 @@ import {
 } from '../../src/memory/lifecycle';
 
 test('dead creep cleanup preserves memory for creeps still spawning', () => {
-  globalThis.Memory = {
+  (globalThis as unknown as { Memory: Memory }).Memory = {
     creeps: {
       alive: { kind: 'worker', home: 'E25S47' },
       spawning: { kind: 'worker', home: 'E25S47' },
       dead: { kind: 'worker', home: 'E25S47' }
     }
-  } as Memory;
+  } as unknown as Memory;
 
-  globalThis.Game = {
+  (globalThis as unknown as { Game: Game }).Game = {
     creeps: {
       alive: {}
     },
@@ -41,7 +41,7 @@ test('worker memory recovery adopts orphaned bot-named workers', () => {
     }
   } as unknown as Creep;
 
-  globalThis.Game = {
+  (globalThis as unknown as { Game: Game }).Game = {
     time: 12345,
     creeps: {
       [orphan.name]: orphan
