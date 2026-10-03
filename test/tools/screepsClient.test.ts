@@ -41,3 +41,23 @@ test('does not retry non-429 failures', async () => {
 
   assert.equal(attempts, 1);
 });
+
+test('retries ScreepsApiError-shaped 429 status', async () => {
+  let attempts = 0;
+
+  const result = await withScreepsRetry(
+    async () => {
+      attempts += 1;
+      if (attempts === 1) {
+        throw { status: 429 };
+      }
+      return 'ok';
+    },
+    'screeps api error shape',
+    undefined,
+    2
+  );
+
+  assert.equal(result, 'ok');
+  assert.equal(attempts, 2);
+});

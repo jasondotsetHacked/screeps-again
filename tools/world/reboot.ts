@@ -1,6 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { isWalkable } from '../../shared/world/terrain';
-import { getScreepsClient } from '../lib/screepsClient';
+import { getScreepsClient, withScreepsRetry } from '../lib/screepsClient';
 import { findStartCandidates, type StartCandidate } from './findStart';
 
 const commit = process.argv.includes('--commit');
@@ -39,11 +39,31 @@ async function assertSelectionStillValid(
 
   const [statsResponse, statusResponse, objectsResponse, terrainResponse, prohibited] =
     await Promise.all([
-      api.gameMapStats([roomName], 'owner0', shard),
-      api.gameRoomStatus(roomName, shard),
-      api.gameRoomObjects(roomName, shard),
-      api.gameRoomTerrain(roomName, shard),
-      api.userRespawnProhibitedRooms()
+      withScreepsRetry(
+        () => api.gameMapStats([roomName], 'owner0', shard),
+        `revalidate map stats ${shard}/${roomName}`,
+        (message) => console.log(`[reboot] ${message}`)
+      ),
+      withScreepsRetry(
+        () => api.gameRoomStatus(roomName, shard),
+        `revalidate status ${shard}/${roomName}`,
+        (message) => console.log(`[reboot] ${message}`)
+      ),
+      withScreepsRetry(
+        () => api.gameRoomObjects(roomName, shard),
+        `revalidate objects ${shard}/${roomName}`,
+        (message) => console.log(`[reboot] ${message}`)
+      ),
+      withScreepsRetry(
+        () => api.gameRoomTerrain(roomName, shard),
+        `revalidate terrain ${shard}/${roomName}`,
+        (message) => console.log(`[reboot] ${message}`)
+      ),
+      withScreepsRetry(
+        () => api.userRespawnProhibitedRooms(),
+        'revalidate respawn prohibited rooms',
+        (message) => console.log(`[reboot] ${message}`)
+      )
     ]);
 
   const stats = statsResponse.stats[roomName];
@@ -134,7 +154,11 @@ async function assertSelectionStillValid(
   );
 }
 
-const initialStatus = await api.userWorldStatus();
+const initialStatus = await withScreepsRetry(
+  () => api.userWorldStatus(),
+  'initial world status',
+  (message) => console.log(`[reboot] ${message}`)
+);
 
 if (initialStatus.status === 'normal') {
   console.log(
@@ -187,11 +211,19 @@ let status: string = initialStatus.status;
 
 if (status === 'lost') {
   console.log('Account is lost. Issuing explicit respawn request...');
-  await api.userRespawn();
+  await withScreepsRetry(
+    () => api.userRespawn(),
+    'respawn request',
+    (message) => console.log(`[reboot] ${message}`)
+  );
 
   for (let attempt = 0; attempt < 6; attempt += 1) {
     await delay(750);
-    const updated = await api.userWorldStatus();
+    const updated = await withScreepsRetry(
+      () => api.userWorldStatus(),
+      'post-respawn world status',
+      (message) => console.log(`[reboot] ${message}`)
+    );
     status = updated.status;
     if (status === 'empty') break;
   }
@@ -212,12 +244,17 @@ console.log(
   `Placing Spawn1 in ${selected.shard}/${roomName} at ${x},${y}...`
 );
 
-await api.gamePlaceSpawn(
-  roomName,
-  x,
-  y,
-  'Spawn1',
-  selected.shard
+await withScreepsRetry(
+  () =>
+    api.gamePlaceSpawn(
+      roomName,
+      x,
+      y,
+      'Spawn1',
+      selected.shard
+    ),
+  `place Spawn1 in ${selected.shard}/${roomName}`,
+  (message) => console.log(`[reboot] ${message}`)
 );
 
 console.log(

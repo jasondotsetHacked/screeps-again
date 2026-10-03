@@ -15,9 +15,16 @@ function loadLocalEnv(): void {
 }
 
 function httpStatus(error: unknown): number | null {
+  if (typeof error !== 'object' || error === null) {
+    return null;
+  }
+
+  if ('status' in error) {
+    const status = (error as { status?: unknown }).status;
+    if (typeof status === 'number') return status;
+  }
+
   if (
-    typeof error === 'object' &&
-    error !== null &&
     'response' in error &&
     typeof (error as { response?: unknown }).response === 'object' &&
     (error as { response?: unknown }).response !== null
