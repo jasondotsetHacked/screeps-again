@@ -5,6 +5,10 @@ import { findStartCandidates, type StartCandidate } from './findStart';
 
 const commit = process.argv.includes('--commit');
 const allowShardX = process.argv.includes('--allow-shard-x');
+const expectFlag = process.argv.find((argument) =>
+  argument.startsWith('--expect=')
+);
+const expectedTarget = expectFlag ? expectFlag.slice('--expect='.length) : null;
 const samplesFlag = process.argv.find((argument) =>
   argument.startsWith('--samples=')
 );
@@ -186,6 +190,13 @@ if (selected.shard === 'shardX' && !allowShardX) {
   );
 }
 
+const selectedTarget = `${selected.shard}/${selected.room.room.roomName}`;
+if (expectedTarget && selectedTarget !== expectedTarget) {
+  throw new Error(
+    `Launch aborted: live search selected ${selectedTarget}, but --expect requires ${expectedTarget}. Run a dry run and review the new selection before committing.`
+  );
+}
+
 console.log('');
 console.log('Selected restart candidate:');
 console.log(
@@ -202,7 +213,7 @@ console.log('');
 
 if (!commit) {
   console.log(
-    'Dry run only. Deploy the runtime first, review this selection, then rerun with --commit to respawn/place Spawn1.'
+    `Dry run only. Deploy the runtime first, review this selection, then commit with --expect=${selectedTarget} so a later randomized scan cannot silently choose a different room.`
   );
   process.exit(0);
 }
