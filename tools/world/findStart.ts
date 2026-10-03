@@ -27,9 +27,14 @@ function normalizeStartRoom(shard: string, raw: string): string {
   return raw.startsWith(`${shard}/`) ? raw.slice(shard.length + 1) : raw;
 }
 
+export interface FindStartOptions {
+  allowShardX?: boolean;
+}
+
 export async function findStartCandidates(
   radius = 5,
-  onProgress?: (message: string) => void
+  onProgress?: (message: string) => void,
+  options: FindStartOptions = {}
 ): Promise<FindStartResult> {
   const api = getScreepsClient();
   const [shardsResponse, worldStatus] = await Promise.all([
@@ -38,12 +43,25 @@ export async function findStartCandidates(
   ]);
 
   const shards = shardsResponse.shards
-    .filter((shard) => shard.rooms > 0)
+    .filter(
+      (shard) =>
+        shard.rooms > 0 &&
+        (options.allowShardX === true || shard.name !== 'shardX')
+    )
     .sort(
       (a, b) =>
         a.users / Math.max(a.rooms, 1) -
         b.users / Math.max(b.rooms, 1)
     );
+
+  if (
+    options.allowShardX !== true &&
+    shardsResponse.shards.some((shard) => shard.name === 'shardX')
+  ) {
+    onProgress?.(
+      'Skipping shardX by default: controller actions there require active Access Key access. Use --allow-shard-x only when that access is intentional.'
+    );
+  }
 
   const scans: RegionScanResult[] = [];
   const candidates: StartCandidate[] = [];
