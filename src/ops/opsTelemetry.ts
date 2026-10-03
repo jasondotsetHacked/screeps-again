@@ -1,3 +1,4 @@
+import type { ColonyTick } from '../colony/runColony';
 import { buildWorkerBody, replacementLeadTicks } from '../spawning/workerBody';
 import { planWorkerPopulation, workerTarget } from '../spawning/workerPlan';
 
@@ -66,7 +67,8 @@ export function recordOpsError(
 
 export function publishOpsSnapshot(
   ownedRooms: Room[],
-  cpuStart: number
+  cpuStart: number,
+  colonies: ReadonlyMap<string, ColonyTick> = new Map()
 ): void {
   const ops = ensureOpsMemory();
 
@@ -77,18 +79,20 @@ export function publishOpsSnapshot(
   const gameCreeps = Object.values(Game.creeps);
 
   const rooms: OpsRoomSnapshot[] = ownedRooms.map((room) => {
+    const colony = colonies.get(room.name);
+    const state = colony?.state;
     const controller = room.controller;
     const rcl = controller?.level ?? 0;
-    const spawns = room.find(FIND_MY_SPAWNS);
-    const structures = room.find(FIND_STRUCTURES);
-    const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
-    const sources = room.find(FIND_SOURCES);
+    const spawns = state?.spawns ?? room.find(FIND_MY_SPAWNS);
+    const structures = state?.structures ?? room.find(FIND_STRUCTURES);
+    const sites = state?.constructionSites ?? room.find(FIND_MY_CONSTRUCTION_SITES);
+    const sources = state?.sources ?? room.find(FIND_SOURCES);
 
     const plannedBody = buildWorkerBody(room.energyCapacityAvailable);
-    const replacementLead = plannedBody.length > 0
+    const replacementLead = state?.replacementLead ?? (plannedBody.length > 0
       ? replacementLeadTicks(plannedBody)
-      : 0;
-    const population = planWorkerPopulation({
+      : 0);
+    const population = state?.population ?? planWorkerPopulation({
       roomName: room.name,
       workers: gameCreeps,
       spawning: spawns.flatMap((spawn) => {
@@ -115,7 +119,8 @@ export function publishOpsSnapshot(
       energyAvailable: room.energyAvailable,
       energyCapacityAvailable: room.energyCapacityAvailable,
       constructionSites: sites.length,
-      hostiles: room.find(FIND_HOSTILE_CREEPS).length,
+      hostiles: state?.hostiles.length ?? room.find(FIND_HOSTILE_CREEPS).length,
+      labor: colony ? summarizeLabor(colony) : undefined,
       spawns: spawns.map((spawn) => ({
         name: spawn.name,
         energy: spawn.store.getUsedCapacity(RESOURCE_ENERGY),
@@ -188,5 +193,31 @@ export function publishOpsSnapshot(
     bucket: Game.cpu.bucket,
     rooms,
     creeps
+  };
+}
+
+// Four fixed kind summaries, no target IDs, creep assignments, or raw objects.
+export function summarizeLabor(colony: ColonyTick): OpsLaborSnapshot {
+  return {
+    totalDemands: colony.demands.length,
+    emergency: colony.demands.some((demand) => demand.emergency),
+    kinds: (['refill', 'build', 'repair', 'upgrade'] as const).map((kind) => {
+      const demands = colony.demands.filter((demand) => demand.kind === kind);
+      const assignments = colony.assignments.filter((assignment) => assignment.kind === kind);
+      const contribution = new Map<string, number>();
+      for (const assignment of assignments) {
+        contribution.set(assignment.demandId, (contribution.get(assignment.demandId) ?? 0) + assignment.contribution);
+      }
+      return {
+        kind, capability: kind === 'refill' ? 'carry' : 'work',
+        demands: demands.length,
+        minimum: demands.reduce((sum, demand) => sum + demand.minimum, 0),
+        desired: demands.reduce((sum, demand) => sum + demand.desired, 0),
+        assigned: assignments.reduce((sum, assignment) => sum + assignment.contribution, 0),
+        unsatisfied: demands.reduce((sum, demand) => sum + Math.max(0, demand.desired - (contribution.get(demand.id) ?? 0)), 0),
+        unsatisfiedMinimum: demands.reduce((sum, demand) => sum + Math.max(0, demand.minimum - (contribution.get(demand.id) ?? 0)), 0),
+        workers: assignments.length
+      };
+    })
   };
 }

@@ -1,4 +1,4 @@
-import { runColony } from '../colony/runColony';
+import { runColony, type ColonyTick } from '../colony/runColony';
 import { cleanupDeadCreepMemory, initializeMemory } from '../memory/lifecycle';
 import { publishOpsSnapshot, recordOpsError } from '../ops/opsTelemetry';
 
@@ -14,9 +14,10 @@ export function runKernel(): void {
     (room) => room.controller?.my
   );
 
+  const colonies = new Map<string, ColonyTick>();
   for (const room of ownedRooms) {
     try {
-      runColony(room);
+      colonies.set(room.name, runColony(room));
     } catch (error) {
       recordOpsError('colony', room.name, error);
       console.log(
@@ -28,7 +29,7 @@ export function runKernel(): void {
     }
   }
 
-  publishOpsSnapshot(ownedRooms, cpuStart);
+  publishOpsSnapshot(ownedRooms, cpuStart, colonies);
 
   if (Game.time % STATUS_INTERVAL === 0) {
     const roomNames = ownedRooms.map((room) => room.name).join(', ') || 'none';

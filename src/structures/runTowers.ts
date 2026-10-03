@@ -1,17 +1,13 @@
-export function runTowers(room: Room): void {
-  const towers = room
-    .find(FIND_MY_STRUCTURES)
-    .filter(
-      (structure): structure is StructureTower =>
-        structure.structureType === STRUCTURE_TOWER
-    );
+import type { ColonyState } from '../colony/colonyState';
 
+export function runTowers(state: Pick<ColonyState, 'towers' | 'hostiles' | 'creeps' | 'structures'>): void {
+  const towers = state.towers;
   if (towers.length === 0) return;
-
-  const hostiles = room.find(FIND_HOSTILE_CREEPS);
-  const injured = room.find(FIND_MY_CREEPS).filter(
-    (creep) => creep.hits < creep.hitsMax
-  );
+  const hostiles = [...state.hostiles];
+  const injured = state.creeps.filter((creep) => creep.hits < creep.hitsMax);
+  const damaged = state.structures.filter((structure) =>
+    (structure.structureType === STRUCTURE_ROAD || structure.structureType === STRUCTURE_CONTAINER) &&
+    structure.hits < structure.hitsMax * 0.35);
 
   for (const tower of towers) {
     if (hostiles.length > 0) {
@@ -28,12 +24,7 @@ export function runTowers(room: Room): void {
 
     if (tower.store.getUsedCapacity(RESOURCE_ENERGY) < 500) continue;
 
-    const repairTarget = tower.pos.findClosestByRange(FIND_STRUCTURES, {
-      filter: (structure) =>
-        (structure.structureType === STRUCTURE_ROAD ||
-          structure.structureType === STRUCTURE_CONTAINER) &&
-        structure.hits < structure.hitsMax * 0.35
-    });
+    const repairTarget = tower.pos.findClosestByRange(damaged);
 
     if (repairTarget) tower.repair(repairTarget);
   }

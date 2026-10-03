@@ -121,6 +121,15 @@ function formatCreep(creep: OpsCreepSnapshot, tick: number): string {
   ].join('\n');
 }
 
+function laborText(labor: OpsLaborSnapshot | undefined): string {
+  if (!labor) return 'n/a';
+  return labor.totalDemands + ' demands' + (labor.emergency ? '; controller emergency' : '') + '; ' +
+    labor.kinds.slice(0, 4).map((entry) => clean(entry.kind) + ': ' +
+      entry.workers + ' workers, ' + entry.assigned + '/' + entry.desired + ' ' + clean(entry.capability) +
+      ', minimum ' + entry.minimum + ', unmet ' + entry.unsatisfied +
+      ' (minimum ' + entry.unsatisfiedMinimum + ')').join('; ');
+}
+
 function formatRoom(room: OpsRoomSnapshot, snapshot: OpsSnapshot): string {
   const roomCreeps = snapshot.creeps.filter(
     (creep) => creep.room === room.name || creep.home === room.name
@@ -159,6 +168,7 @@ function formatRoom(room: OpsRoomSnapshot, snapshot: OpsSnapshot): string {
     '- Controller downgrade: **' + (room.ticksToDowngrade ?? 'n/a') + ' ticks**',
     '- Safe mode: **' + (room.safeMode ?? 'inactive') + '**',
     '- Worker population: **' + workerPopulationText(room.workerPopulation) + '**',
+    '- Labor: ' + laborText(room.labor),
     '- Extensions: **' + structureProgressText(room.infrastructure?.extensions) + '**',
     '- Containers: **' + structureProgressText(room.infrastructure?.containers) + '**',
     '- Towers: **' + structureProgressText(room.infrastructure?.towers) + '**',
@@ -226,7 +236,8 @@ function formatSnapshot(ops: OpsMemory): string {
             '; towers ' +
             structureProgressText(room.infrastructure?.towers) +
             '; roads ' +
-            structureProgressText(room.infrastructure?.roads)
+            structureProgressText(room.infrastructure?.roads) +
+            '; labor ' + laborText(room.labor)
         )
         .join('\n')
     : '- none';

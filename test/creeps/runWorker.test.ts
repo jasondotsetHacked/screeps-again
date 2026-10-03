@@ -1,77 +1,11 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { isControllerUrgent } from '../../src/creeps/controllerUrgency';
-import { runWorker } from '../../src/creeps/runWorker';
-
-Object.assign(globalThis, {
-  RESOURCE_ENERGY: 'energy',
-  FIND_MY_STRUCTURES: 1,
-  FIND_MY_CONSTRUCTION_SITES: 2,
-  FIND_STRUCTURES: 3,
-  STRUCTURE_SPAWN: 'spawn',
-  STRUCTURE_EXTENSION: 'extension',
-  STRUCTURE_TOWER: 'tower',
-  STRUCTURE_CONTAINER: 'container',
-  STRUCTURE_ROAD: 'road',
-  OK: 0,
-  ERR_NOT_IN_RANGE: -9
-});
-
-function scenario(options: {
-  ticks?: number;
-  refill?: boolean;
-  construction?: boolean;
-  repair?: boolean;
-  road?: boolean;
-  outOfRange?: boolean;
-}) {
-  const actions: string[] = [];
-  const controller = { my: true, ticksToDowngrade: options.ticks ?? 3000 };
-  const room = {
-    controller,
-    find: (type: number) => {
-      if (type === FIND_MY_STRUCTURES) {
-        return options.refill ? [{ structureType: STRUCTURE_SPAWN }] : [];
-      }
-      if (type === FIND_MY_CONSTRUCTION_SITES) {
-        return [
-          ...(options.construction ? [{ structureType: STRUCTURE_EXTENSION }] : []),
-          ...(options.road ? [{ structureType: STRUCTURE_ROAD }] : [])
-        ];
-      }
-      if (type === FIND_STRUCTURES) {
-        return options.repair
-          ? [{ structureType: STRUCTURE_CONTAINER, hits: 10, hitsMax: 100 }]
-          : [];
-      }
-      throw new Error(`Unexpected room query: ${type}`);
-    }
-  };
-  const creep = {
-    spawning: false,
-    memory: { working: true },
-    room,
-    store: { getUsedCapacity: () => 50, getFreeCapacity: () => 0 },
-    transfer: () => { actions.push('refill'); return OK; },
-    build: (site: ConstructionSite) => {
-      actions.push(site.structureType === STRUCTURE_ROAD ? 'road' : 'build');
-      return OK;
-    },
-    repair: () => { actions.push('repair'); return OK; },
-    upgradeController: (target: unknown) => {
-      assert.equal(target, controller);
-      actions.push('upgrade');
-      return options.outOfRange ? ERR_NOT_IN_RANGE : OK;
-    },
-    moveTo: (target: unknown) => {
-      assert.equal(target, controller);
-      actions.push('move-to-controller');
-      return OK;
-    }
-  } as unknown as Creep;
-  runWorker(creep);
-  return actions;
-}
+import { fixture, position } from '../helpers/colony';
+import { observeColony } from '../../src/colony/colonyState';
+import { planWork } from '../../src/colony/planWork';
+import { scheduleWorkers } from '../../src/colony/scheduler';
+import { runWorker, workerEnergyContext } from '../../src/creeps/runWorker';
+import { isControllerUrgent } from '../../src/colony/controllerUrgency';
 
 test('controller urgency retains the strict 3000-tick owned-controller threshold', () => {
   assert.equal(isControllerUrgent({ my: true, ticksToDowngrade: 2999 }), true);
@@ -80,24 +14,76 @@ test('controller urgency retains the strict 3000-tick owned-controller threshold
   assert.equal(isControllerUrgent(undefined), false);
 });
 
-test('endangered controller beats simultaneous refill and construction demand', () => {
-  assert.deepEqual(
-    scenario({ ticks: 2999, refill: true, construction: true, repair: true, road: true }),
-    ['upgrade']
-  );
+for (const kind of ['refill', 'build', 'repair', 'upgrade'] as const) {
+  for (const energy of [0, 50]) {
+    test(`${kind} assignment with ${energy} energy ${energy ? 'executes' : 'acquires energy before visiting work target'}`, () => {
+      const f = fixture({ count: 1, energy });
+      if (kind === 'refill') f.refill();
+      if (kind === 'build') f.build();
+      if (kind === 'repair') f.repair();
+      const state = observeColony(f.room);
+      const demand = planWork(state).find((d) => d.kind === kind)!;
+      const assignment = scheduleWorkers(state, [demand])[0];
+      assert.ok(assignment);
+      runWorker(f.workers[0], assignment, workerEnergyContext(state));
+      assert.deepEqual(f.actions, [`w0:${energy ? kind : 'harvest'}`]);
+      if (!energy) assert.equal(f.workers[0].memory.working, false);
+    });
+  }
+}
+
+test('empty assigned worker moves toward energy, never the controller', () => {
+  const f = fixture({ count: 1, energy: 0 });
+  f.workers[0].harvest = () => ERR_NOT_IN_RANGE;
+  const state = observeColony(f.room);
+  runWorker(f.workers[0], scheduleWorkers(state, planWork(state))[0], workerEnergyContext(state));
+  assert.deepEqual(f.actions, ['w0:move:source-a']);
 });
 
-test('worker travels to the endangered controller instead of doing routine work', () => {
-  assert.deepEqual(
-    scenario({ ticks: 2999, refill: true, construction: true, outOfRange: true }),
-    ['upgrade', 'move-to-controller']
-  );
+test('normal acquisition retains fill/use hysteresis and nearby dropped energy pickup', () => {
+  const f = fixture({ count: 1, energy: 20 });
+  f.workers[0].memory.working = false;
+  f.drops.push({ id: 'drop', pos: position(11, 10), amount: 20, resourceType: RESOURCE_ENERGY } as Resource);
+  const state = observeColony(f.room);
+  runWorker(f.workers[0], scheduleWorkers(state, planWork(state))[0], workerEnergyContext(state));
+  assert.deepEqual(f.actions, ['w0:pickup']);
 });
 
-test('safe controller preserves refill, construction, repair, road, upgrade priorities', () => {
-  assert.deepEqual(scenario({ refill: true, construction: true, repair: true, road: true }), ['refill']);
-  assert.deepEqual(scenario({ construction: true, repair: true, road: true }), ['build']);
-  assert.deepEqual(scenario({ repair: true, road: true }), ['repair']);
-  assert.deepEqual(scenario({ road: true }), ['road']);
-  assert.deepEqual(scenario({}), ['upgrade']);
+test('source allocation balances new workers and reuses existing source memory', () => {
+  const f = fixture({ count: 3, energy: 0 });
+  const state = observeColony(f.room);
+  const second = { id: 'source-b', pos: position(7, 7) } as Source;
+  const energy = workerEnergyContext({ ...state, sources: [...state.sources, second] });
+  for (const worker of f.workers) runWorker(worker, undefined, energy);
+  assert.deepEqual(f.workers.map((w) => w.memory.sourceId), ['source-b', 'source-a', 'source-b']);
+  runWorker(f.workers[0], undefined, energy);
+  assert.equal(f.workers[0].memory.sourceId, 'source-b');
+});
+
+test('emergency assignment beats other demand, uses partial energy, and travels to controller', () => {
+  const f = fixture({ ticks: 2999, energy: 10 });
+  f.refill(); f.build(); f.build('road', STRUCTURE_ROAD); f.repair();
+  const state = observeColony(f.room);
+  const assignments = scheduleWorkers(state, planWork(state));
+  assert.equal(assignments.length, 5);
+  assert.ok(assignments.every((a) => a.kind === 'upgrade' && a.emergency));
+  f.workers[0].memory.working = false;
+  f.workers[0].upgradeController = () => ERR_NOT_IN_RANGE;
+  const byName = new Map(assignments.map((a) => [a.creepName, a]));
+  const energy = workerEnergyContext(state);
+  for (const worker of f.workers) runWorker(worker, byName.get(worker.name), energy);
+  assert.ok(f.actions.includes('w0:move:controller'));
+  assert.equal(f.actions.filter((a) => a.endsWith(':upgrade')).length, 4);
+  assert.equal(f.actions.some((a) => /refill|build|repair|harvest/.test(a)), false);
+});
+
+test('stale target and spawning worker are harmless; executor never searches for another task', () => {
+  const f = fixture({ count: 1 });
+  const state = observeColony(f.room);
+  const assignment = scheduleWorkers(state, planWork(state))[0];
+  assignment.targetId = 'gone';
+  runWorker(f.workers[0], assignment, workerEnergyContext(state));
+  f.workers[0].spawning = true;
+  runWorker(f.workers[0], assignment, workerEnergyContext(state));
+  assert.deepEqual(f.actions, []);
 });
