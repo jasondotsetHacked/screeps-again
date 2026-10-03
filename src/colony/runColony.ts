@@ -1,9 +1,12 @@
 import { runConstruction } from '../construction/runConstruction';
 import { runWorker } from '../creeps/runWorker';
+import { recoverWorkerMemory } from '../memory/lifecycle';
 import { runSpawning } from '../spawning/runSpawning';
 import { runTowers } from '../structures/runTowers';
 
 export function runColony(room: Room): void {
+  recoverWorkerMemory(room);
+
   runTowers(room);
   runConstruction(room);
   runSpawning(room);
