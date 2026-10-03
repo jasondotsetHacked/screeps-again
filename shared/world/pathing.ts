@@ -61,17 +61,25 @@ class MinHeap {
   }
 }
 
-export function terrainPathCost(
+function range(a: RoomPositionLike, b: RoomPositionLike): number {
+  return Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
+}
+
+export function terrainPathCostToRange(
   encoded: string,
   from: RoomPositionLike,
-  to: RoomPositionLike
+  target: RoomPositionLike,
+  targetRange: number
 ): number | null {
-  if (!isWalkable(encoded, from.x, from.y) || !isWalkable(encoded, to.x, to.y)) {
+  if (!Number.isInteger(targetRange) || targetRange < 0) {
+    throw new Error('targetRange must be a non-negative integer');
+  }
+
+  if (!isWalkable(encoded, from.x, from.y)) {
     return null;
   }
 
   const start = from.y * ROOM_SIZE + from.x;
-  const goal = to.y * ROOM_SIZE + to.x;
   const distances = new Array<number>(ROOM_SIZE * ROOM_SIZE).fill(Number.POSITIVE_INFINITY);
   const queue = new MinHeap();
 
@@ -82,10 +90,13 @@ export function terrainPathCost(
     const current = queue.pop();
     if (!current) break;
     if (current.cost !== distances[current.index]) continue;
-    if (current.index === goal) return current.cost;
 
     const x = current.index % ROOM_SIZE;
     const y = Math.floor(current.index / ROOM_SIZE);
+
+    if (range({ x, y }, target) <= targetRange) {
+      return current.cost;
+    }
 
     for (const [dx, dy] of DIRECTIONS) {
       const nextX = x + dx;
@@ -103,4 +114,16 @@ export function terrainPathCost(
   }
 
   return null;
+}
+
+export function terrainPathCost(
+  encoded: string,
+  from: RoomPositionLike,
+  to: RoomPositionLike
+): number | null {
+  if (!isWalkable(encoded, to.x, to.y)) {
+    return null;
+  }
+
+  return terrainPathCostToRange(encoded, from, to, 0);
 }

@@ -1,4 +1,4 @@
-import { terrainPathCost } from '../../shared/world/pathing';
+import { terrainPathCostToRange } from '../../shared/world/pathing';
 import {
   countWalkableNeighbors,
   isSwamp,
@@ -108,13 +108,14 @@ export async function planInitialSpawn(
 
   for (const finalist of finalists) {
     const sourcePathCosts = sources
-      .map((source) => terrainPathCost(encoded, finalist.position, source))
+      .map((source) => terrainPathCostToRange(encoded, finalist.position, source, 1))
       .filter((cost): cost is number => cost !== null);
 
-    const controllerPathCost = terrainPathCost(
+    const controllerPathCost = terrainPathCostToRange(
       encoded,
       finalist.position,
-      controller
+      controller,
+      3
     );
 
     if (
@@ -165,8 +166,15 @@ export async function planInitialSpawn(
 
   const best = plans[0];
   if (!best) {
+    const sourceWalls = sources.filter(
+      (source) => !isWalkable(encoded, source.x, source.y)
+    ).length;
+    const controllerOnWall = !isWalkable(encoded, controller.x, controller.y);
+
     throw new Error(
-      `Could not find a safe initial spawn position in ${shard}/${roomName}`
+      `Could not find a safe initial spawn position in ${shard}/${roomName} ` +
+      `(heuristicCandidates=${heuristicCandidates.length}, finalists=${finalists.length}, ` +
+      `sources=${sources.length}, sourcesOnWall=${sourceWalls}, controllerOnWall=${controllerOnWall})`
     );
   }
 
