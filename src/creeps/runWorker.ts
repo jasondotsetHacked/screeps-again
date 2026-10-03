@@ -1,3 +1,5 @@
+import { isControllerUrgent } from './controllerUrgency';
+
 type EnergyTarget =
   | StructureSpawn
   | StructureExtension
@@ -154,6 +156,13 @@ function harvest(creep: Creep): void {
 }
 
 function work(creep: Creep): void {
+  const controller = creep.room.controller;
+  if (controller && isControllerUrgent(controller)) {
+    const result = creep.upgradeController(controller);
+    if (result === ERR_NOT_IN_RANGE) moveTo(creep, controller);
+    return;
+  }
+
   const energyTarget = findEnergyTarget(creep);
   if (energyTarget) {
     const result = creep.transfer(energyTarget, RESOURCE_ENERGY);
@@ -165,16 +174,6 @@ function work(creep: Creep): void {
   if (criticalSite) {
     const result = creep.build(criticalSite);
     if (result === ERR_NOT_IN_RANGE) moveTo(creep, criticalSite);
-    return;
-  }
-
-  const controller = creep.room.controller;
-  if (
-    controller?.my &&
-    controller.ticksToDowngrade < 3000
-  ) {
-    const result = creep.upgradeController(controller);
-    if (result === ERR_NOT_IN_RANGE) moveTo(creep, controller);
     return;
   }
 

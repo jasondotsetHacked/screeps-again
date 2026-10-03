@@ -1,30 +1,11 @@
-import {
-  bodyCost,
-  buildWorkerBody,
-  replacementLeadTicks
-} from './workerBody';
-
-function workerTarget(room: Room): number {
-  const sourceCount = room.find(FIND_SOURCES).length;
-  const capacity = room.energyCapacityAvailable;
-
-  if (capacity <= 300) return Math.max(3, sourceCount * 3);
-  if (capacity <= 550) return Math.max(4, sourceCount * 2 + 1);
-  return Math.max(4, sourceCount + 2);
-}
-
-function isWorkerForRoom(creep: Creep, room: Room): boolean {
-  return creep.memory.kind === 'worker' && creep.memory.home === room.name;
-}
+import { buildWorkerBody, replacementLeadTicks } from './workerBody';
+import { planWorkerPopulation, planWorkerSpawn, workerTarget } from './workerPlan';
 
 function spawnWorker(
   spawn: StructureSpawn,
   room: Room,
-  energyBudget: number
+  body: BodyPartConstant[]
 ): ScreepsReturnCode {
-  const body = buildWorkerBody(energyBudget);
-  if (body.length === 0) return ERR_NOT_ENOUGH_ENERGY;
-
   const name = `worker-${room.name}-${Game.time.toString(36)}`;
   return spawn.spawnCreep(body, name, {
     memory: {
@@ -47,60 +28,36 @@ export function runSpawning(room: Room): void {
   const availableSpawn = spawns.find((spawn) => !spawn.spawning);
   if (!availableSpawn) return;
 
-  const workers = Object.values(Game.creeps).filter((creep) =>
-    isWorkerForRoom(creep, room)
-  );
-
-  const anyWorkerSpawning = spawns.some((spawn) => {
-    const name = spawn.spawning?.name;
-    return Boolean(
-      name &&
-        Memory.creeps[name]?.kind === 'worker' &&
-        Memory.creeps[name]?.home === room.name
-    );
-  });
-
-  if (workers.length === 0 && !anyWorkerSpawning) {
-    const emergencyBudget = Math.min(
-      room.energyAvailable,
-      room.energyCapacityAvailable
-    );
-
-    const result = spawnWorker(availableSpawn, room, emergencyBudget);
-    if (result === OK) {
-      console.log(
-        `[spawn] ${room.name} emergency bootstrap worker started with ${emergencyBudget} energy`
-      );
-    }
-    return;
-  }
-
   const plannedBody = buildWorkerBody(room.energyCapacityAvailable);
   if (plannedBody.length === 0) return;
 
   const lead = replacementLeadTicks(plannedBody);
-  const effectiveWorkers = workers.filter(
-    (creep) =>
-      creep.spawning ||
-      creep.ticksToLive === undefined ||
-      creep.ticksToLive > lead
-  ).length + (anyWorkerSpawning ? 1 : 0);
-
-  const target = workerTarget(room);
-  if (effectiveWorkers >= target) return;
-
-  const cost = bodyCost(plannedBody);
-  if (room.energyAvailable < cost) return;
-
-  const result = spawnWorker(
-    availableSpawn,
-    room,
-    room.energyCapacityAvailable
+  const population = planWorkerPopulation({
+    roomName: room.name,
+    workers: Object.values(Game.creeps),
+    spawning: spawns.flatMap((spawn) => {
+      const name = spawn.spawning?.name;
+      return name ? [{ name, memory: Memory.creeps[name] }] : [];
+    }),
+    replacementLead: lead,
+    target: workerTarget(room.find(FIND_SOURCES).length, room.energyCapacityAvailable)
+  });
+  const plan = planWorkerSpawn(
+    population, room.energyAvailable, room.energyCapacityAvailable
   );
+  if (!plan) return;
+
+  const result = spawnWorker(availableSpawn, room, plan.body);
 
   if (result === OK) {
-    console.log(
-      `[spawn] ${room.name} worker ${effectiveWorkers + 1}/${target}; replacement lead=${lead} ticks`
-    );
+    if (plan.reason !== 'normal') {
+      console.log(
+        `[spawn] ${room.name} recovery=${plan.reason}; effective=${population.effectiveWorkers}/${population.target}; body=${plan.body.join(',')}; budget=${plan.energyBudget}; cost=${plan.cost}`
+      );
+    } else {
+      console.log(
+        `[spawn] ${room.name} worker ${population.effectiveWorkers + 1}/${population.target}; replacement lead=${lead} ticks`
+      );
+    }
   }
 }
