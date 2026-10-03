@@ -1,4 +1,4 @@
-import { getScreepsClient } from '../lib/screepsClient';
+import { getScreepsClient, withScreepsRetry } from '../lib/screepsClient';
 import { planInitialSpawn, type InitialSpawnPlan } from './spawnPlan';
 import { scanRegion } from './scanRegion';
 import type {
@@ -39,8 +39,16 @@ export async function findStartCandidates(
 ): Promise<FindStartResult> {
   const api = getScreepsClient();
   const [shardsResponse, worldStatus] = await Promise.all([
-    api.gameShardsInfo(),
-    api.userWorldStatus()
+    withScreepsRetry(
+      () => api.gameShardsInfo(),
+      'shard list',
+      onProgress
+    ),
+    withScreepsRetry(
+      () => api.userWorldStatus(),
+      'world status',
+      onProgress
+    )
   ]);
 
   const shards = shardsResponse.shards
@@ -80,7 +88,11 @@ export async function findStartCandidates(
 
       const seedRooms = new Set<string>();
       for (let sample = 0; sample < samples; sample += 1) {
-        const start = await api.userWorldStartRoom(shard.name);
+        const start = await withScreepsRetry(
+          () => api.userWorldStartRoom(shard.name),
+          `start-room hint for ${shard.name}`,
+          onProgress
+        );
         const rawSeed = start.room[0];
         if (rawSeed) {
           seedRooms.add(normalizeStartRoom(shard.name, rawSeed));

@@ -7,7 +7,7 @@ import {
   type RoomPositionLike
 } from '../../shared/world/terrain';
 import { terrainPathCostToRange } from '../../shared/world/pathing';
-import { getScreepsClient } from '../lib/screepsClient';
+import { getScreepsClient, withScreepsRetry } from '../lib/screepsClient';
 import { scoreRoom } from './scoreRoom';
 import type {
   DeepRoomAnalysis,
@@ -17,7 +17,7 @@ import type {
 } from './types';
 
 const MAP_STATS_BATCH = 50;
-const DEEP_SCAN_CONCURRENCY = 4;
+const DEEP_SCAN_CONCURRENCY = 2;
 
 function chunks<T>(items: T[], size: number): T[][] {
   const result: T[][] = [];
@@ -75,9 +75,18 @@ async function inspectRoom(
 ): Promise<DeepRoomAnalysis> {
   try {
     const [terrainResponse, objectsResponse, statusResponse] = await Promise.all([
-      api.gameRoomTerrain(summary.roomName, shard),
-      api.gameRoomObjects(summary.roomName, shard),
-      api.gameRoomStatus(summary.roomName, shard)
+      withScreepsRetry(
+        () => api.gameRoomTerrain(summary.roomName, shard),
+        `terrain ${shard}/${summary.roomName}`
+      ),
+      withScreepsRetry(
+        () => api.gameRoomObjects(summary.roomName, shard),
+        `objects ${shard}/${summary.roomName}`
+      ),
+      withScreepsRetry(
+        () => api.gameRoomStatus(summary.roomName, shard),
+        `status ${shard}/${summary.roomName}`
+      )
     ]);
 
     const encoded = terrainResponse.terrain[0].terrain;
@@ -158,7 +167,11 @@ export async function scanRegion(
   onProgress?.(`Loading map metadata for ${roomNames.length} rooms...`);
 
   for (const batch of chunks(roomNames, MAP_STATS_BATCH)) {
-    const response = await api.gameMapStats(batch, 'owner0', shard);
+    const response = await withScreepsRetry(
+      () => api.gameMapStats(batch, 'owner0', shard),
+      `map stats ${shard}`,
+      onProgress
+    );
     gameTime = Math.max(gameTime, response.gameTime);
 
     for (const [userId, user] of Object.entries(response.users)) {
@@ -206,8 +219,16 @@ export async function scanRegion(
   );
 
   const [worldStatus, respawnProhibited] = await Promise.all([
-    api.userWorldStatus(),
-    api.userRespawnProhibitedRooms()
+    withScreepsRetry(
+      () => api.userWorldStatus(),
+      'world status',
+      onProgress
+    ),
+    withScreepsRetry(
+      () => api.userRespawnProhibitedRooms(),
+      'respawn prohibited rooms',
+      onProgress
+    )
   ]);
 
   const prohibited = new Set(
