@@ -140,10 +140,15 @@ export async function findStartCandidates(
 
         for (const room of scan.candidates.slice(0, 8)) {
           try {
-            const spawn = await planInitialSpawn(
-              shard.name,
-              room.room.roomName,
-              api
+            const spawn = await withScreepsRetry(
+              () =>
+                planInitialSpawn(
+                  shard.name,
+                  room.room.roomName,
+                  api
+                ),
+              `Spawn1 plan for ${shard.name}/${room.room.roomName}`,
+              onProgress
             );
 
             const density = shard.users / Math.max(shard.rooms, 1);
