@@ -48,7 +48,7 @@ if (!commit) {
   process.exit(0);
 }
 
-let status = initialStatus.status;
+let status: string = initialStatus.status;
 
 if (status === 'lost') {
   console.log('Account is lost. Issuing explicit respawn request...');
