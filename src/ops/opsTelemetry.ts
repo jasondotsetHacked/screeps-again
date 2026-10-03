@@ -121,6 +121,8 @@ export function publishOpsSnapshot(
       constructionSites: sites.length,
       hostiles: state?.hostiles.length ?? room.find(FIND_HOSTILE_CREEPS).length,
       labor: colony ? summarizeLabor(colony) : undefined,
+      safety: colony ? { requested: colony.safety.activateSafeMode,
+        accepted: colony.safety.accepted, reason: colony.safety.reason } : undefined,
       spawns: spawns.map((spawn) => ({
         name: spawn.name,
         energy: spawn.store.getUsedCapacity(RESOURCE_ENERGY),
@@ -197,7 +199,8 @@ export function publishOpsSnapshot(
 }
 
 // Four fixed kind summaries, no target IDs, creep assignments, or raw objects.
-export function summarizeLabor(colony: ColonyTick): OpsLaborSnapshot {
+export function summarizeLabor(colony: Pick<ColonyTick, 'demands' | 'assignments' | 'executions'>): OpsLaborSnapshot {
+  const execution = new Map(colony.executions.map((worker) => [worker.creepName, worker]));
   return {
     totalDemands: colony.demands.length,
     emergency: colony.demands.some((demand) => demand.emergency),
@@ -216,7 +219,19 @@ export function summarizeLabor(colony: ColonyTick): OpsLaborSnapshot {
         assigned: assignments.reduce((sum, assignment) => sum + assignment.contribution, 0),
         unsatisfied: demands.reduce((sum, demand) => sum + Math.max(0, demand.desired - (contribution.get(demand.id) ?? 0)), 0),
         unsatisfiedMinimum: demands.reduce((sum, demand) => sum + Math.max(0, demand.minimum - (contribution.get(demand.id) ?? 0)), 0),
-        workers: assignments.length
+        workers: assignments.length,
+        boundedAssigned: assignments.filter((assignment) => assignment.service !== 'surplus')
+          .reduce((sum, assignment) => sum + assignment.contribution, 0),
+        surplusAssigned: assignments.filter((assignment) => assignment.service === 'surplus')
+          .reduce((sum, assignment) => sum + assignment.contribution, 0),
+        acquiringWorkers: assignments.filter((assignment) => execution.get(assignment.creepName)?.phase === 'acquire').length,
+        travelingWorkers: assignments.filter((assignment) => execution.get(assignment.creepName)?.phase === 'travel').length,
+        workingWorkers: assignments.filter((assignment) => execution.get(assignment.creepName)?.phase === 'work').length,
+        blockedWorkers: assignments.filter((assignment) => execution.get(assignment.creepName)?.phase === 'blocked').length,
+        acceptedWorkIntents: assignments.filter((assignment) => {
+          const worker = execution.get(assignment.creepName);
+          return worker?.phase === 'work' && worker.accepted;
+        }).length
       };
     })
   };

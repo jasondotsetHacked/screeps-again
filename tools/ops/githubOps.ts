@@ -127,7 +127,11 @@ function laborText(labor: OpsLaborSnapshot | undefined): string {
     labor.kinds.slice(0, 4).map((entry) => clean(entry.kind) + ': ' +
       entry.workers + ' workers, ' + entry.assigned + '/' + entry.desired + ' ' + clean(entry.capability) +
       ', minimum ' + entry.minimum + ', unmet ' + entry.unsatisfied +
-      ' (minimum ' + entry.unsatisfiedMinimum + ')').join('; ');
+      ' (minimum ' + entry.unsatisfiedMinimum + ')' +
+      (entry.boundedAssigned === undefined ? '' : ', bounded/surplus ' + entry.boundedAssigned + '/' + entry.surplusAssigned) +
+      (entry.acquiringWorkers === undefined ? '' : ', acquire/travel/work/blocked ' +
+        entry.acquiringWorkers + '/' + entry.travelingWorkers + '/' + entry.workingWorkers + '/' + entry.blockedWorkers +
+        ', accepted work intents ' + entry.acceptedWorkIntents)).join('; ');
 }
 
 function formatRoom(room: OpsRoomSnapshot, snapshot: OpsSnapshot): string {
@@ -167,6 +171,8 @@ function formatRoom(room: OpsRoomSnapshot, snapshot: OpsSnapshot): string {
     '- Energy: **' + room.energyAvailable + '/' + room.energyCapacityAvailable + '**',
     '- Controller downgrade: **' + (room.ticksToDowngrade ?? 'n/a') + ' ticks**',
     '- Safe mode: **' + (room.safeMode ?? 'inactive') + '**',
+    ...(room.safety ? ['- Safety decision: ' + clean(room.safety.reason) +
+      (room.safety.requested ? '; activation ' + (room.safety.accepted ? 'intent accepted' : 'request rejected') : '')] : []),
     '- Worker population: **' + workerPopulationText(room.workerPopulation) + '**',
     '- Labor: ' + laborText(room.labor),
     '- Extensions: **' + structureProgressText(room.infrastructure?.extensions) + '**',

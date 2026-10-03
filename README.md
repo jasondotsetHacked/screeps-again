@@ -110,13 +110,21 @@ Once Spawn1 exists, the runtime:
 - forecasts replacement lead time from spawn time + travel + safety buffer;
 - keeps a target generalist-worker population;
 - assigns workers across sources;
+- reuses container, tombstone, ruin, and dropped energy through a shared acquisition planner;
 - schedules refill, construction, repair, and controller labor centrally;
+- chooses nearby worker–target pairs within each urgency tier;
 - builds containers, extensions, towers, and limited roads;
 - repairs damaged roads/containers;
 - reserves ongoing controller upgrading alongside construction and roads;
 - overrides routine work below the controller emergency threshold;
 - uses towers for defense, healing, and emergency infrastructure repair;
+- requests available safe mode for immediate armed threats to owned spawns/towers;
+- isolates construction failures so spawning and labor can continue;
 - logs colony/runtime errors without intentionally stopping every room.
+
+Ops snapshots distinguish bounded/surplus assigned capacity, worker acquisition,
+travel, accepted work intents, and blocked execution. These describe planning
+and accepted intents, not measured work delivered by the game engine.
 
 Workers remain generalists. Dedicated miners/haulers, remote mining, advanced base planning, market logic, combat doctrine, and the deeper forecaster are future work. See [the colony labor architecture](docs/colony-labor.md) for the runtime pipeline, budgets, and transitional systems.
 

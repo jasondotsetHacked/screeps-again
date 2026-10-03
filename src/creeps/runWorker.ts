@@ -1,73 +1,72 @@
 import type { ColonyState } from '../colony/colonyState';
+import { selectEnergySupply, type EnergySupply } from '../colony/planEnergy';
 import type { WorkerAssignment } from '../work/assignments';
+import type { WorkerExecution } from '../work/execution';
 
 export interface WorkerEnergyContext {
-  sources: readonly Source[];
-  droppedEnergy: Resource[];
-  sourceAssignments: Map<string, number>;
+  supplies: EnergySupply[];
+  sourceWork: Map<string, number>;
 }
 
 export function workerEnergyContext(state: ColonyState): WorkerEnergyContext {
-  const sourceAssignments = new Map<string, number>();
+  const sourceWork = new Map<string, number>();
   for (const worker of state.workerCreeps) {
     const id = worker.memory.sourceId;
-    if (id) sourceAssignments.set(id, (sourceAssignments.get(id) ?? 0) + 1);
+    if (id && !worker.spawning) sourceWork.set(id,
+      (sourceWork.get(id) ?? 0) + worker.getActiveBodyparts(WORK));
   }
-  return { sources: state.sources, sourceAssignments, droppedEnergy: state.droppedEnergy };
+  return { supplies: state.energySupplies.map((supply) => ({ ...supply })), sourceWork };
 }
 
-function moveTo(creep: Creep, target: RoomObject): void {
-  creep.moveTo(target, {
-    reusePath: 10,
-    maxRooms: 1
-  });
+function outcome(creep: Creep, target: RoomObject, result: number,
+  phase: 'acquire' | 'work'): WorkerExecution {
+  if (result === ERR_NOT_IN_RANGE) {
+    const movement = creep.moveTo(target, { reusePath: 10, maxRooms: 1 });
+    return { creepName: creep.name, phase: movement === OK ? 'travel' : 'blocked', accepted: false };
+  }
+  return { creepName: creep.name, phase: result === OK ? phase : 'blocked', accepted: result === OK };
 }
 
-function getSource(creep: Creep, context: WorkerEnergyContext): Source | null {
-  const existing = context.sources.find((source) => source.id === creep.memory.sourceId);
-  if (existing) return existing;
-  let best: Source | undefined;
-  for (const source of context.sources) {
-    const assignedDifference = (context.sourceAssignments.get(source.id) ?? 0) -
-      (best ? context.sourceAssignments.get(best.id) ?? 0 : 0);
-    const distanceDifference = best ? creep.pos.getRangeTo(source) - creep.pos.getRangeTo(best) : 0;
-    if (!best || assignedDifference < 0 ||
-        (assignedDifference === 0 && (distanceDifference < 0 ||
-          (distanceDifference === 0 && source.id.localeCompare(best.id) < 0)))) {
-      best = source;
+function acquire(creep: Creep, context: WorkerEnergyContext): WorkerExecution {
+  const work = creep.getActiveBodyparts(WORK);
+  const freeCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
+  const supply = selectEnergySupply({ pos: creep.pos, work,
+    move: creep.getActiveBodyparts(MOVE), freeCapacity, sourceId: creep.memory.sourceId
+  }, context.supplies, context.sourceWork);
+  const target = supply && Game.getObjectById(supply.id as Id<Source | Resource | StructureContainer | Tombstone | Ruin>);
+  if (!supply || !target) return { creepName: creep.name, phase: 'blocked', accepted: false };
+
+  let result: number;
+  if (supply.kind === 'harvest') {
+    const old = creep.memory.sourceId;
+    if (old !== supply.id) {
+      if (old) context.sourceWork.set(old, Math.max(0, (context.sourceWork.get(old) ?? 0) - work));
+      creep.memory.sourceId = supply.id as Id<Source>;
+      context.sourceWork.set(supply.id, (context.sourceWork.get(supply.id) ?? 0) + work);
     }
+    // harvest checks source energy before range. Move explicitly while waiting
+    // for a depleted source, rather than standing far away until it refills.
+    result = (target as Source).energy === 0 && creep.pos.getRangeTo(target) > 1
+      ? ERR_NOT_IN_RANGE : creep.harvest(target as Source);
+    if (result === OK) supply.amount = Math.max(0, supply.amount - Math.min(freeCapacity, work * HARVEST_POWER));
+    if (result === ERR_INVALID_TARGET) {
+      context.sourceWork.set(supply.id, Math.max(0, (context.sourceWork.get(supply.id) ?? 0) - work));
+      delete creep.memory.sourceId;
+    }
+  } else {
+    const amount = Math.min(freeCapacity, supply.amount);
+    result = supply.kind === 'pickup' ? creep.pickup(target as Resource)
+      : creep.withdraw(target as StructureContainer | Tombstone | Ruin, RESOURCE_ENERGY, amount);
+    // Tick-local reservations prevent simultaneous acquisition from promising
+    // the same recovered energy repeatedly. Reobserve all supplies next tick.
+    if (result === OK || result === ERR_NOT_IN_RANGE) supply.amount -= amount;
   }
-  if (!best) return null;
-  const old = creep.memory.sourceId;
-  if (old) context.sourceAssignments.set(old, Math.max(0, (context.sourceAssignments.get(old) ?? 0) - 1));
-  creep.memory.sourceId = best.id;
-  context.sourceAssignments.set(best.id, (context.sourceAssignments.get(best.id) ?? 0) + 1);
-  return best;
+  return outcome(creep, target, result, 'acquire');
 }
 
-function harvest(creep: Creep, context: WorkerEnergyContext): void {
-  const dropped = creep.pos.findClosestByRange(context.droppedEnergy);
-
-  if (dropped && creep.pos.getRangeTo(dropped) <= 4) {
-    const result = creep.pickup(dropped);
-    if (result === ERR_NOT_IN_RANGE) moveTo(creep, dropped);
-    return;
-  }
-
-  const source = getSource(creep, context);
-  if (!source) return;
-
-  const result = creep.harvest(source);
-  if (result === ERR_NOT_IN_RANGE) moveTo(creep, source);
-  if (result === ERR_INVALID_TARGET) {
-    context.sourceAssignments.set(source.id, Math.max(0, (context.sourceAssignments.get(source.id) ?? 0) - 1));
-    delete creep.memory.sourceId;
-  }
-}
-
-function execute(creep: Creep, assignment: WorkerAssignment): void {
+function execute(creep: Creep, assignment: WorkerAssignment): WorkerExecution {
   const target = Game.getObjectById(assignment.targetId as Id<Structure | ConstructionSite>);
-  if (!target) return; // Completed/destroyed targets are reconsidered next tick.
+  if (!target) return { creepName: creep.name, phase: 'blocked', accepted: false };
   let result: number;
   switch (assignment.kind) {
     case 'refill':
@@ -77,27 +76,21 @@ function execute(creep: Creep, assignment: WorkerAssignment): void {
     case 'repair': result = creep.repair(target as Structure); break;
     case 'upgrade': result = creep.upgradeController(target as StructureController); break;
   }
-  if (result === ERR_NOT_IN_RANGE) moveTo(creep, target);
+  return outcome(creep, target, result, 'work');
 }
 
-export function runWorker(
-  creep: Creep,
-  assignment: WorkerAssignment | undefined,
-  energy: WorkerEnergyContext
-): void {
-  if (creep.spawning) return;
+export function runWorker(creep: Creep, assignment: WorkerAssignment | undefined,
+  energy: WorkerEnergyContext): WorkerExecution {
+  if (creep.spawning) return { creepName: creep.name, phase: 'spawning', accepted: false };
   const carried = creep.store.getUsedCapacity(RESOURCE_ENERGY);
-  if (carried === 0) {
-    creep.memory.working = false;
-  } else if (creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) {
-    creep.memory.working = true;
-  }
+  if (carried === 0) creep.memory.working = false;
+  else if (creep.store.getFreeCapacity(RESOURCE_ENERGY) === 0) creep.memory.working = true;
 
-  // An empty assigned worker still acquires energy. Emergency service uses
-  // even a partial load immediately; normal work retains fill/use hysteresis.
+  // Emergency service uses partial loads. Normal work retains fill/use
+  // hysteresis; an empty assigned worker visits an energy supply first.
   if (carried > 0 && (creep.memory.working || assignment?.emergency)) {
-    if (assignment) execute(creep, assignment);
-  } else {
-    harvest(creep, energy);
+    return assignment ? execute(creep, assignment)
+      : { creepName: creep.name, phase: 'idle', accepted: false };
   }
+  return acquire(creep, energy);
 }

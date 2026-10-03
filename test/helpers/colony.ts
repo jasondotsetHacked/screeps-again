@@ -2,6 +2,8 @@ Object.assign(globalThis, {
   WORK: 'work',
   CARRY: 'carry',
   MOVE: 'move',
+  ATTACK: 'attack',
+  RANGED_ATTACK: 'ranged_attack',
   RESOURCE_ENERGY: 'energy',
   CREEP_SPAWN_TIME: 3,
   BODYPART_COST: { work: 100, carry: 50, move: 50 },
@@ -13,6 +15,10 @@ Object.assign(globalThis, {
   FIND_DROPPED_RESOURCES: 6,
   FIND_MY_STRUCTURES: 7,
   FIND_MY_SPAWNS: 8,
+  FIND_TOMBSTONES: 9,
+  FIND_RUINS: 10,
+  STRUCTURE_RAMPART: 'rampart',
+  TERRAIN_MASK_WALL: 1,
   STRUCTURE_SPAWN: 'spawn',
   STRUCTURE_EXTENSION: 'extension',
   STRUCTURE_TOWER: 'tower',
@@ -33,6 +39,8 @@ Object.assign(globalThis, {
     tower: { 2: 0 }
   },
   BUILD_POWER: 5,
+  HARVEST_POWER: 2,
+  CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD: 5000,
   REPAIR_POWER: 100,
   OK: 0,
   ERR_NOT_IN_RANGE: -9,
@@ -79,8 +87,12 @@ export function fixture(
   const sites: ConstructionSite[] = [];
   const hostiles: Creep[] = [];
   const drops: Resource[] = [];
+  const tombstones: Tombstone[] = [];
+  const ruins: Ruin[] = [];
   const source = {
     id: 'source-a',
+    energy: 3000,
+    ticksToRegeneration: 300,
     pos: position(5, 5)
   } as Source;
   const controller = {
@@ -88,6 +100,8 @@ export function fixture(
     my: true,
     level: options.level ?? 2,
     ticksToDowngrade: options.ticks ?? 10000,
+    safeModeAvailable: 0,
+    activateSafeMode: () => { actions.push('safe-mode'); return OK; },
     pos: position(30, 30)
   } as StructureController;
   const room = {
@@ -95,6 +109,7 @@ export function fixture(
     energyAvailable: 300,
     energyCapacityAvailable: 300,
     controller,
+    getTerrain: () => ({ get: () => TERRAIN_MASK_WALL }),
     find: (type: number) => {
       calls.set(type, (calls.get(type) ?? 0) + 1);
       switch (type) {
@@ -116,6 +131,8 @@ export function fixture(
           return hostiles;
         case FIND_DROPPED_RESOURCES:
           return drops;
+        case FIND_TOMBSTONES: return tombstones;
+        case FIND_RUINS: return ruins;
         default:
           throw new Error(`Unexpected find ${type}`);
       }
@@ -160,6 +177,7 @@ export function fixture(
         actions.push(`${name}:pickup`);
         return OK;
       },
+      withdraw: () => { actions.push(`${name}:withdraw`); return OK; },
       transfer: () => {
         actions.push(`${name}:refill`);
         return OK;
@@ -191,8 +209,9 @@ export function fixture(
         workers.map((worker) => [worker.name, worker])
       ),
       spawns: {},
+      rooms: { [room.name]: room },
       getObjectById: (id: string) =>
-        [controller, source, ...structures, ...sites].find(
+        [controller, source, ...structures, ...sites, ...drops, ...tombstones, ...ruins].find(
           (object) => object.id === id
         ) ?? null,
       cpu: { getUsed: () => 1, limit: 20, bucket: 10000 }
@@ -244,8 +263,9 @@ export function fixture(
       structureType: STRUCTURE_CONTAINER,
       hits: 44,
       hitsMax: 100,
-      pos: position(20, 20)
-    } as Structure;
+      pos: position(20, 20),
+      store: { getUsedCapacity: () => 0, getFreeCapacity: () => 2000, getCapacity: () => 2000 }
+    } as unknown as StructureContainer;
     structures.push(target);
     return target;
   }
@@ -259,6 +279,8 @@ export function fixture(
     controller,
     hostiles,
     drops,
+    tombstones,
+    ruins,
     actions,
     calls,
     refill,

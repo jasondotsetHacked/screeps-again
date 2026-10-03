@@ -15,16 +15,19 @@ observeColony(room)
 
 `main.ts` still only invokes the kernel. The kernel isolates room errors, collects
 tick results, and publishes sanitized ops telemetry. `runColony` recovers worker
-memory, observes once, runs towers, construction-site placement and spawning,
+memory, observes once, runs towers, a separate safety decision, construction-site placement and spawning,
 then plans, schedules, and executes workers with individual error isolation.
-New construction sites enter labor planning on the next observation, one tick
+Construction exceptions are recorded without aborting spawning or labor. Worker
+exceptions remain individually isolated. New construction sites enter labor planning on the next observation, one tick
 after placement. Construction placement rules are unchanged.
 
 ## Runtime state
 
 `ColonyState` contains the room, controller ID/position/level/downgrade buffer and
 RCL timer limit, room energy, sources, structures, sites, owned spawns/towers,
-hostiles, local creeps, home-worker objects, dropped energy, normalized eligible
+hostiles and their active attack capabilities, critical owned spawn/tower targets,
+safe-mode eligibility, local creeps, home-worker objects, normalized energy supplies,
+normalized eligible
 worker capabilities/positions/energy, and the existing population/replacement
 plan. Target projections contain refill deficits, remaining construction work,
 and infrastructure damage. Each room find category is gathered once for this
@@ -52,11 +55,14 @@ at most 40% of colony WORK per site, bounded by remaining progress divided by
 BUILD_POWER; repair uses at most 20%, bounded by damage up to the existing 45%
 health threshold divided by REPAIR_POWER. These are simple allocation budgets.
 
-The pure scheduler sorts demands once by descending priority and ID. It first
+The pure scheduler sorts demands by descending priority and ID. It first
 reserves each minimum, then fills bounded desired budgets with remaining workers.
 Each worker is consumed at most once. A candidate score favors energized workers
 already working (+20), proximity (minus Chebyshev range), useful capability,
-and smaller overshoot (minus two per excess capability unit); names break ties.
+and smaller overshoot (minus two per excess capability unit). Within an equal
+priority tier it compares all eligible worker-target pairs before selecting the
+best one; demand IDs then worker names break score ties. A nearby peer target
+therefore wins over a distant target even if its ID sorts later.
 This favors retaining a nearby working creep without persistent assignments.
 
 Workers are indivisible: desired/minimum may be exceeded by the last whole body,
@@ -65,8 +71,11 @@ to schedule, demands may explicitly opt into a third low-priority surplus pass
 with their own surplus maximum. The controller upgrade demand uses this only as a
 productive sink for workers that would otherwise be idle; creep execution still
 contains no fallback task selector. Unmet minima and desired budgets remain
-visible in telemetry. Scheduling cost remains small and greedy, with no
-pathfinding or global optimization.
+visible in telemetry. Assignments record whether they came from the minimum,
+desired, or surplus pass. This greedy comparison costs O(D × W² + D log D) in
+the worst case for D demands and W workers; at the current small generalist
+population it needs no pathfinding or global optimization. Large future labor
+pools should revisit this cost before expanding the population policy.
 
 Normal desired-pass priority retains spawn → extension → tower refill, then
 controller desired service, extension → tower → container → other non-road
@@ -123,27 +132,54 @@ made safe solely by allocation.
 ## Execution, survival and transitions
 
 Normal workers retain `working` hysteresis: zero energy starts acquisition, a
-full store starts execution, and partial loads retain the current phase. Nearby
-energy drops (at least 20 energy and within four tiles) precede source harvesting.
-Existing `sourceId` memory is reused. New source assignments balance cached home
-worker counts and range, updating counts as workers execute. Action movement
+full store starts execution, and partial loads retain the current phase.
+Observation projects sources, energy drops of at least 20 energy, containers,
+tombstones, and ruins once. Spawn, extension and tower energy never enters the
+withdrawal supply list. Supplies under private hostile ramparts are excluded.
+The pure acquisition selector minimizes estimated travel plus acquisition ticks
+per usable energy. Harvesting estimates use active WORK and cached source WORK
+contention; withdrawals/pickups take one action tick. Chebyshev distance remains
+a cheap travel proxy. A nearby useful recovered store can beat harvesting;
+one-energy scraps do not automatically pull a worker away from a productive source.
+Existing `sourceId` breaks exact score ties, and selected sources update the
+tick-local WORK load. When all supplies are depleted, the selector chooses a
+source using travel and its regeneration timer. Normal source harvesting remains
+the fallback, with no persistent acquisition assignment.
+
+Accepted pickups/withdrawals and travel toward them reserve that energy within
+the tick so later workers do not all plan to consume the same small store.
+These reservations are discarded next tick; they are not long-term claims.
+Harvest intents subtract only their immediate estimated intake. Action movement
 still uses reusePath 10 and maxRooms 1. Missing targets wait for the next tick's
 plan rather than activating a second worker priority tree.
 
 Bootstrap bodies, critical-depletion spawning, full-body replacement waiting,
 replacement lead time, spawning deduplication, memory recovery, controller
 emergency protection, tower attack/heal/repair decisions, error isolation and
-ops publication remain. Towers act separately before site placement. No account
+ops publication remain. Towers act separately before site placement.
+`planSafety` requests safe mode only when an active melee/dismantle hostile is
+within one tile, or a ranged hostile within three tiles, of an owned spawn or
+tower. Harmless scouts and distant armed creeps do not trigger it. Availability,
+current protection, cooldown, upgrade blocking, and the engine's downgrade
+eligibility rule are respected. The kernel gates one accepted safe-mode intent
+across owned rooms, including when the requesting colony later throws, so a
+second request cannot replace the first. Eligibility follows the official
+[engine safe-mode checks](https://github.com/screeps/engine/blob/master/src/processor/intents/controllers/activateSafeMode.js).
+Failed safety actions do not abort labor.
+This is a conservative last-resort structure policy, not a defense planner or
+a prediction of whether towers will defeat the threat. No account
 reboot, spawn placement, or deployment is part of this migration.
 
 Generalist workers and self-harvesting source allocation remain transitional.
 Construction still places its own sites and performs its own periodic scans.
 Towers remain independent of worker scheduling. There is no miner/hauler role,
-remote mining, reservation, storage logistics, expansion, or rate forecasting.
+remote mining, reservation, managed storage logistics, expansion, or rate forecasting.
 
 Known limits: a greedy scheduler may leave a bounded budget unsatisfied when
 whole bodies cannot fit its hard cap, and may change assignments as readiness
-changes. Refill budgets use CARRY capacity rather than actual transfer throughput;
+changes. Travel scores do not account for terrain or blocked paths, and temporary
+energy reservations can change which supply a worker pursues on later ticks.
+Refill budgets use CARRY capacity rather than actual transfer throughput;
 demand is reobserved next tick. Otherwise-idle eligible generalists are sent to
 explicit low-priority controller surplus service, but energy scarcity and travel
 can still limit delivered work. Normal controller service can be starved during
@@ -161,14 +197,27 @@ logistics rather than the transitional self-harvesting eligibility rule.
 
 Every existing ops snapshot interval includes total demands, controller emergency,
 and four fixed kind summaries with capability unit, demand count, minimum,
-desired, assigned, unsatisfied desired, unsatisfied minimum, and assigned workers.
-These measure assigned capacity, including workers acquiring energy; they do not
-claim delivered work. Summaries expose no raw objects, arbitrary Memory, console
+desired, assigned, bounded versus surplus contribution, unsatisfied desired,
+unsatisfied minimum, and assigned workers. Per-kind counts distinguish accepted
+acquisition, travel, accepted work, and blocked execution. `acceptedWorkIntents`
+counts OK action responses; the engine resolves those intents later, so this
+does not measure delivered work or throughput. Failed movement also reports
+blocked execution. A compact safety reason/request/accepted result appears in
+the room snapshot. The ops formatter accepts older snapshots without these fields.
+Summaries expose no raw objects, arbitrary Memory, console
 output, or per-target assignment list. The public read-only command allowlist and
 credential model are unchanged. `/screeps room` and `/screeps snapshot` show labor.
 
 Tests cover observation/population reuse, controller bands, scheduler limits and
 determinism, mixed work execution, acquisition with every assignment kind, source
-balancing, emergency partial-load behavior, stale targets, and sanitized telemetry,
+load balancing, energy selection/reservations, safe-mode eligibility and the
+cross-room gate, construction exception isolation, emergency partial-load
+behavior, stale targets, and sanitized telemetry,
 alongside the existing recovery and security tests. Run `npm run check` for
-typechecking, the full test suite, and the runtime bundle.
+typechecking, the full test suite, and the runtime bundle. A small multi-tick
+harness resolves queued movement, energy acquisition/consumption, source
+regeneration, construction progress/completion, and controller buffer restoration.
+It checks ongoing construction alongside upgrading, depleted-source recovery,
+emergency recovery from stored energy, and new targets after completion. It does
+not model terrain, collisions, fatigue, boosts, hostile damage, or spawning;
+existing spawning/recovery tests remain authoritative for population behavior.

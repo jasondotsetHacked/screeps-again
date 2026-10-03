@@ -15,9 +15,18 @@ export function runKernel(): void {
   );
 
   const colonies = new Map<string, ColonyTick>();
+  // Screeps accepts only one global safe-mode intent: a later request can
+  // replace an earlier one. Existing protection also prevents activation.
+  let canActivateSafeMode = !ownedRooms.some((room) => Boolean(room.controller?.safeMode));
   for (const room of ownedRooms) {
     try {
-      colonies.set(room.name, runColony(room));
+      const colony = runColony(room, canActivateSafeMode, () => {
+        const result = room.controller!.activateSafeMode();
+        // Record the global gate immediately, even if later colony work throws.
+        if (result === OK) canActivateSafeMode = false;
+        return result;
+      });
+      colonies.set(room.name, colony);
     } catch (error) {
       recordOpsError('colony', room.name, error);
       console.log(
