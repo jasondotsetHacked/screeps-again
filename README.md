@@ -90,11 +90,13 @@ Before committing a spawn:
 2. run `npm run deploy`;
 3. review the reboot selection.
 
-Then explicitly commit:
+Then explicitly commit and pin the reviewed target:
 
 ```bash
-npm run world:reboot -- --commit
+npm run world:reboot -- --commit --expect=shard3/E25S47
 ```
+
+Replace the example target with the exact `shard/room` printed by your dry run. If the live re-scan selects a different room, the command aborts without placing Spawn1 so the new selection can be reviewed first.
 
 If the account is `lost`, the tool explicitly requests respawn, waits for the account to become `empty`, and then places Spawn1. If the account is already `empty`, it places Spawn1 directly. If the account status is `normal`, it refuses to reboot.
 
