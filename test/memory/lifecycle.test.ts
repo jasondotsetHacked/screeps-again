@@ -33,6 +33,9 @@ test('dead creep cleanup preserves memory for creeps still spawning', () => {
 });
 
 test('worker memory recovery adopts orphaned bot-named workers', () => {
+  (globalThis as unknown as { RESOURCE_ENERGY: ResourceConstant }).RESOURCE_ENERGY =
+    'energy' as ResourceConstant;
+
   const orphan = {
     name: 'worker-E25S47-abc123',
     memory: {},
