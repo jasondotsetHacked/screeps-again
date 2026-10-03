@@ -57,6 +57,46 @@ function formatErrors(ops: OpsMemory): string {
   ].join('\n');
 }
 
+function structureProgressText(
+  progress: OpsStructureProgressSnapshot | undefined
+): string {
+  if (!progress) return 'n/a';
+
+  const target = progress.target === null ? '' : '/' + progress.target;
+  return progress.built + target + ' built; ' + progress.sites + ' sites';
+}
+
+function compactStructureProgress(
+  progress: OpsStructureProgressSnapshot | undefined
+): string {
+  if (!progress) return '?';
+
+  const target = progress.target === null ? '' : '/' + progress.target;
+  const sites = progress.sites > 0 ? ' +' + progress.sites : '';
+  return progress.built + target + sites;
+}
+
+function workerPopulationText(
+  population: OpsWorkerPopulationSnapshot | undefined
+): string {
+  if (!population) return 'n/a';
+
+  return (
+    'effective ' +
+    population.effective +
+    '/' +
+    population.target +
+    '; live ' +
+    population.live +
+    '; aging ' +
+    population.aging +
+    '; spawning ' +
+    population.spawning +
+    '; replacement lead ' +
+    population.replacementLead
+  );
+}
+
 function formatCpu(snapshot: OpsSnapshot): string {
   return [
     '### Screeps CPU — ' + shard,
@@ -118,6 +158,11 @@ function formatRoom(room: OpsRoomSnapshot, snapshot: OpsSnapshot): string {
     '- Energy: **' + room.energyAvailable + '/' + room.energyCapacityAvailable + '**',
     '- Controller downgrade: **' + (room.ticksToDowngrade ?? 'n/a') + ' ticks**',
     '- Safe mode: **' + (room.safeMode ?? 'inactive') + '**',
+    '- Worker population: **' + workerPopulationText(room.workerPopulation) + '**',
+    '- Extensions: **' + structureProgressText(room.infrastructure?.extensions) + '**',
+    '- Containers: **' + structureProgressText(room.infrastructure?.containers) + '**',
+    '- Towers: **' + structureProgressText(room.infrastructure?.towers) + '**',
+    '- Roads: **' + structureProgressText(room.infrastructure?.roads) + '**',
     '- Construction sites: **' + room.constructionSites + '**',
     '- Hostile creeps: **' + room.hostiles + '**',
     '- Spawns: ' + spawnText,
@@ -140,11 +185,21 @@ function formatSnapshot(ops: OpsMemory): string {
             ' | ' +
             room.rcl +
             ' | ' +
+            (room.progress ?? '?') +
+            '/' +
+            (room.progressTotal ?? '?') +
+            ' | ' +
             room.energyAvailable +
             '/' +
             room.energyCapacityAvailable +
             ' | ' +
-            room.spawns.length +
+            (room.workerPopulation
+              ? room.workerPopulation.effective + '/' + room.workerPopulation.target
+              : '?') +
+            ' | ' +
+            compactStructureProgress(room.infrastructure?.extensions) +
+            ' | ' +
+            compactStructureProgress(room.infrastructure?.containers) +
             ' | ' +
             room.constructionSites +
             ' | ' +
@@ -152,7 +207,29 @@ function formatSnapshot(ops: OpsMemory): string {
             ' |'
         )
         .join('\n')
-    : '| none | - | - | - | - | - |';
+    : '| none | - | - | - | - | - | - | - | - |';
+
+  const progress = snapshot.rooms.length
+    ? snapshot.rooms
+        .map(
+          (room) =>
+            '- **' +
+            clean(room.name) +
+            '** — controller ' +
+            (room.ticksToDowngrade ?? 'n/a') +
+            ' ticks; workers ' +
+            workerPopulationText(room.workerPopulation) +
+            '; extensions ' +
+            structureProgressText(room.infrastructure?.extensions) +
+            '; containers ' +
+            structureProgressText(room.infrastructure?.containers) +
+            '; towers ' +
+            structureProgressText(room.infrastructure?.towers) +
+            '; roads ' +
+            structureProgressText(room.infrastructure?.roads)
+        )
+        .join('\n')
+    : '- none';
 
   const creeps = snapshot.creeps.length
     ? snapshot.creeps
@@ -187,9 +264,12 @@ function formatSnapshot(ops: OpsMemory): string {
     '- Owned rooms: **' + snapshot.rooms.length + '**',
     '- Creeps: **' + snapshot.creeps.length + '**',
     '',
-    '| Room | RCL | Energy | Spawns | Sites | Hostiles |',
-    '| --- | ---: | ---: | ---: | ---: | ---: |',
+    '| Room | RCL | Progress | Energy | Workers | Ext | Containers | Sites | Hostiles |',
+    '| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |',
     rooms,
+    '',
+    '#### Colony progress',
+    progress,
     '',
     '#### Creeps',
     creeps,
