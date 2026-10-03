@@ -172,7 +172,7 @@ console.log(
 );
 const nearest = selected.room.nearbyOwners[0];
 console.log(
-  `  sources=${selected.room.room.sources.length}; status=${selected.room.room.status}; nearestOwner=${nearest ? `${nearest.username} @ ${nearest.nearestDistance} room(s), RCL ${nearest.maxRcl}` : 'none observed'}`
+  `  sources=${selected.room.room.sources.length}; status=${selected.room.room.status}; launchRisk=${selected.launchRisk}; nearestOwner=${nearest ? `${nearest.username} @ ${nearest.nearestDistance} room(s), RCL ${nearest.maxRcl}` : 'none observed'}`
 );
 console.log('');
 
