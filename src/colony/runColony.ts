@@ -1,6 +1,7 @@
 import { runConstruction } from '../construction/runConstruction';
 import { runWorker } from '../creeps/runWorker';
 import { recoverWorkerMemory } from '../memory/lifecycle';
+import { recordOpsError } from '../ops/opsTelemetry';
 import { runSpawning } from '../spawning/runSpawning';
 import { runTowers } from '../structures/runTowers';
 
@@ -21,8 +22,12 @@ export function runColony(room: Room): void {
     try {
       runWorker(creep);
     } catch (error) {
+      recordOpsError('creep', creep.name, error);
       console.log(
-        `[creep:error] ${creep.name}: ${error instanceof Error ? error.stack ?? error.message : String(error)}`
+        '[creep:error] ' +
+          creep.name +
+          ': ' +
+          (error instanceof Error ? error.stack ?? error.message : String(error))
       );
     }
   }

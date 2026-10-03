@@ -10,7 +10,7 @@
     "build": "node scripts/build.mjs",
     "watch": "node scripts/build.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test test/world/rooms.test.ts test/world/pathing.test.ts test/world/scoreRoom.test.ts test/world/startRisk.test.ts test/tools/screepsClient.test.ts test/memory/lifecycle.test.ts test/spawning/workerBody.test.ts",
+    "test": "node --import tsx --test test/world/rooms.test.ts test/world/pathing.test.ts test/world/scoreRoom.test.ts test/world/startRisk.test.ts test/tools/screepsClient.test.ts test/tools/opsCommands.test.ts test/memory/lifecycle.test.ts test/spawning/workerBody.test.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "deploy": "npm run build && node scripts/deploy.mjs",
     "world:me": "tsx tools/world/me.ts",
