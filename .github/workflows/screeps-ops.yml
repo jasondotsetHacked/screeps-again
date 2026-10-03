@@ -1,0 +1,53 @@
+name: Screeps Ops
+
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: screeps-ops
+  cancel-in-progress: false
+
+jobs:
+  query:
+    if: >-
+      github.event.issue.number == 14 &&
+      github.event.comment.user.login == github.repository_owner &&
+      startsWith(github.event.comment.body, '/screeps ')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Checkout trusted default branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Install locked dependencies without lifecycle scripts
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - name: Initialize sanitized response
+        run: printf '### Screeps Ops\n\nThe query did not complete. Check the workflow result.\n' > .ops-response.md
+
+      - name: Read live Screeps telemetry
+        env:
+          SCREEPS_API_TOKEN: ${{ secrets.SCREEPS_API_TOKEN }}
+          SCREEPS_OPS_COMMAND: ${{ github.event.comment.body }}
+          SCREEPS_OPS_SHARD: shard3
+        run: node --import tsx tools/ops/githubOps.ts
+
+      - name: Post sanitized response to ops issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue comment 14 --repo "$GITHUB_REPOSITORY" --body-file .ops-response.md
