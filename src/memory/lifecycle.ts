@@ -1,6 +1,10 @@
 const MEMORY_SCHEMA_VERSION = 1;
 
 export function initializeMemory(): void {
+  if (!Memory.creeps) {
+    Memory.creeps = {};
+  }
+
   if (!Memory.meta) {
     Memory.meta = {
       schemaVersion: MEMORY_SCHEMA_VERSION,
