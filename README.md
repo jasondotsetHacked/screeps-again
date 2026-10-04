@@ -19,6 +19,7 @@ Requires Node.js 22 or newer.
 
 ```bash
 npm install
+npm run mcp:install
 cp .env.example .env
 ```
 
@@ -38,6 +39,8 @@ npm run deploy
 ```
 
 The deploy command builds `dist/main.js` and uploads it to the Screeps code branch configured by `SCREEPS_CODE_BRANCH` (default: `default`).
+
+The isolated, read-only remote MCP gateway is documented in [private Screeps MCP](docs/private-screeps-mcp.md). `npm run check` includes its credential-free tests. MCP deployment is a separate, explicitly authorized operation.
 
 ## World intelligence
 

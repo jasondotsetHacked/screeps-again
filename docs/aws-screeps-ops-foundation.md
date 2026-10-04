@@ -27,7 +27,7 @@ AWS resources are defined in `aws/template.yaml` with AWS SAM.
 The stack creates:
 
 - one 128 MB ARM64 collector Lambda with reserved concurrency 1 and a 30-second timeout;
-- one on-demand 128 MB ARM64 query Lambda with reserved concurrency 1 and a 15-second timeout;
+- one on-demand 128 MB ARM64 query Lambda with reserved concurrency 2 and a 15-second timeout;
 - one EventBridge Scheduler schedule;
 - one DynamoDB table using on-demand billing;
 - two CloudWatch log groups with 7-day retention;
@@ -195,7 +195,7 @@ The query execution role has exactly these permissions:
 
 Its trust policy permits `sts:AssumeRole` only for `lambda.amazonaws.com`. There are no table writes, Scan, SSM permissions or Screeps credentials in this capability. No Lambda resource policy is added; callers need their own AWS `lambda:InvokeFunction` permission on this function. The local CLI also needs `cloudformation:DescribeStacks` for the selected stack. Scope both permissions to the intended resources.
 
-The runtime is Node.js 22 / ARM64, 128 MB, a 15-second timeout, concurrency 1, and 7-day log retention. DynamoDB reads share a 10-second abort deadline, with at most two SDK attempts per read. There is no idle compute execution. Like the collector, it uses the SDK v3 clients included in the Lambda runtime; see [AWS runtime documentation](https://docs.aws.amazon.com/lambda/latest/dg/lambda-nodejs.html#nodejs-sdk-included).
+The runtime is Node.js 22 / ARM64, 128 MB, a 15-second timeout, concurrency 2, and 7-day log retention. Concurrency 2 matches the MCP gateway so ChatGPT can issue two read-only telemetry tools in parallel without one being throttled by the query function. DynamoDB reads share a 10-second abort deadline, with at most two SDK attempts per read. There is no idle compute execution. Like the collector, it uses the SDK v3 clients included in the Lambda runtime; see [AWS runtime documentation](https://docs.aws.amazon.com/lambda/latest/dg/lambda-nodejs.html#nodejs-sdk-included).
 
 ### Event contract
 
