@@ -10,7 +10,7 @@
     "build": "node scripts/build.mjs",
     "watch": "node scripts/build.mjs --watch",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test test/world/rooms.test.ts test/world/pathing.test.ts test/world/scoreRoom.test.ts test/world/startRisk.test.ts test/tools/screepsClient.test.ts test/aws/collectorTelemetry.test.mjs test/memory/lifecycle.test.ts test/spawning/workerBody.test.ts test/spawning/workerPlan.test.ts test/creeps/runWorker.test.ts test/colony/laborPlanning.test.ts test/colony/efficiencyAndSafety.test.ts test/colony/lifecycle.test.ts test/colony/safety.test.ts test/ops/opsTelemetry.test.ts test/world/intel.test.ts test/world/roomIntelRuntime.test.ts",
+    "test": "node --import tsx --test test/world/rooms.test.ts test/world/pathing.test.ts test/world/scoreRoom.test.ts test/world/startRisk.test.ts test/tools/screepsClient.test.ts test/aws/collectorTelemetry.test.mjs test/aws/query.test.mjs test/aws/diagnostics.test.mjs test/aws/opsCli.test.mjs test/memory/lifecycle.test.ts test/spawning/workerBody.test.ts test/spawning/workerPlan.test.ts test/creeps/runWorker.test.ts test/colony/laborPlanning.test.ts test/colony/efficiencyAndSafety.test.ts test/colony/lifecycle.test.ts test/colony/safety.test.ts test/ops/opsTelemetry.test.ts test/world/intel.test.ts test/world/roomIntelRuntime.test.ts",
     "check": "npm run typecheck && npm test && npm run build",
     "deploy": "npm run build && node scripts/deploy.mjs",
     "world:me": "tsx tools/world/me.ts",
@@ -20,9 +20,13 @@
     "world:find-start": "tsx tools/world/find-start.ts",
     "world:reboot": "tsx tools/world/reboot.ts",
     "aws:validate": "sam validate --lint --template-file aws/template.yaml",
-    "aws:build": "sam build --template-file aws/template.yaml"
+    "aws:build": "sam build --template-file aws/template.yaml",
+    "aws:ops": "node tools/aws/ops.mjs"
   },
   "dependencies": {
+    "@aws-sdk/client-cloudformation": "^3.1146.0",
+    "@aws-sdk/client-lambda": "^3.1146.0",
+    "@aws-sdk/credential-provider-node": "^3.972.84",
     "screeps-api": "^2.1.0"
   },
   "devDependencies": {

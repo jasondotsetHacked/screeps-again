@@ -1,6 +1,6 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Transform: AWS::Serverless-2016-10-31
-Description: Private, low-cost Screeps telemetry collection for screeps-again.
+Description: Private, low-cost Screeps telemetry collection and read-only diagnostics for screeps-again.
 
 Parameters:
   ScreepsShard:
@@ -97,7 +97,64 @@ Resources:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 300
 
+  TelemetryQueryLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-telemetry-query
+      RetentionInDays: 7
+
+  TelemetryQueryFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: TelemetryQueryLogGroup
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-telemetry-query
+      Description: Private, read-only bounded queries and diagnostics over Screeps telemetry.
+      CodeUri: query/
+      Handler: index.handler
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      MemorySize: 128
+      Timeout: 15
+      ReservedConcurrentExecutions: 1
+      Role: !GetAtt TelemetryQueryRole.Arn
+      Environment:
+        Variables:
+          TELEMETRY_TABLE: !Ref TelemetryTable
+
+  TelemetryQueryRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ReadTelemetryAndWriteOperationalLogs
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Sid: ReadTelemetryOnly
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource: !GetAtt TelemetryTable.Arn
+              - Sid: WriteQueryLogsOnly
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt TelemetryQueryLogGroup.Arn
+
 Outputs:
+  TelemetryQueryFunctionName:
+    Description: Private Lambda function for telemetry queries and diagnostics.
+    Value: !Ref TelemetryQueryFunction
+
   TelemetryTableName:
     Description: DynamoDB table containing private Screeps telemetry.
     Value: !Ref TelemetryTable

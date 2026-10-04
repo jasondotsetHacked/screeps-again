@@ -135,6 +135,11 @@ publishes compact telemetry to private `Memory.ops`; the AWS collector reads onl
 that path and stores private history in DynamoDB. The former public GitHub issue
 ops console is retired. See [AWS Screeps Ops](docs/aws-screeps-ops-foundation.md).
 
+Private read-only history and diagnostics are available through an authenticated
+query Lambda. Use `npm run aws:ops -- latest`, `npm run aws:ops -- history --hours 6`,
+or `npm run aws:ops -- diagnose --room E25S47 --hours 6` after deploying the query
+layer. The helper discovers the function from the CloudFormation stack output.
+
 Workers remain generalists. Dedicated miners/haulers, remote mining, advanced base planning, market logic, combat doctrine, and the deeper forecaster are future work. See [the colony labor architecture](docs/colony-labor.md) for the runtime pipeline, budgets, and transitional systems.
 
 ## Public-repo security
