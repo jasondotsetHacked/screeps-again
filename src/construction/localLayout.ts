@@ -1,7 +1,17 @@
 import type { WorkPosition } from '../work/demands';
 import { distance } from '../operations/sourceOperation';
 
-export interface LayoutObject { pos: WorkPosition; type: StructureConstant; blocking: boolean }
+export interface LayoutObject {
+  pos: WorkPosition; type: StructureConstant; blocking: boolean; site?: boolean; my?: boolean;
+}
+
+export function layoutCoexistence(type: StructureConstant | undefined, object: LayoutObject): boolean {
+  if (object.type === type) return true; // Adopt the durable structure/site.
+  // Even compatible structures cannot share two simultaneous construction sites.
+  if (object.site) return false;
+  return object.type === STRUCTURE_RAMPART && object.my === true ||
+    object.type === STRUCTURE_ROAD && (type === undefined || type === STRUCTURE_CONTAINER);
+}
 export interface LocalLayout {
   storage?: WorkPosition;
   coreLink?: WorkPosition;
@@ -33,11 +43,11 @@ export function planLocalLayout(input: {
     !sources.some((s) => distance(p, s) === 0) && !input.fixed?.some((s) => distance(p, s) === 0);
   const clear = (p: WorkPosition, type?: StructureConstant) => natural(p) &&
     !sourceBuffers.some((s) => distance(p, s) === 0) &&
-    (at.get(key(p)) ?? []).every((o) => o.type === type || o.type === STRUCTURE_ROAD || o.type === STRUCTURE_RAMPART && !o.blocking);
-  const square = (origin: WorkPosition, range: number): WorkPosition[] => {
+    (at.get(key(p)) ?? []).every((o) => layoutCoexistence(type, o));
+  const square = (origin: WorkPosition, range: number, margin = 3): WorkPosition[] => {
     const tiles: WorkPosition[] = [];
-    for (let y = Math.max(3, origin.y - range); y <= Math.min(46, origin.y + range); y++) {
-      for (let x = Math.max(3, origin.x - range); x <= Math.min(46, origin.x + range); x++) {
+    for (let y = Math.max(margin, origin.y - range); y <= Math.min(49 - margin, origin.y + range); y++) {
+      for (let x = Math.max(margin, origin.x - range); x <= Math.min(49 - margin, origin.x + range); x++) {
         tiles.push({ x, y, roomName });
       }
     }
@@ -56,7 +66,7 @@ export function planLocalLayout(input: {
     const excluded = new Set(blocked.map(key));
     const queue = new Uint16Array(2500);
     let length = 0;
-    for (const p of square(spawn, 1)) if (walkable[key(p)] && !excluded.has(key(p))) {
+    for (const p of square(spawn, 1, 1)) if (walkable[key(p)] && !excluded.has(key(p))) {
       visited[key(p)] = 1; queue[length++] = key(p);
     }
     for (let i = 0; i < length; i++) {
@@ -85,16 +95,16 @@ export function planLocalLayout(input: {
   const existingStorage = ordered(durable(STRUCTURE_STORAGE), coreScore)[0];
   const coreCandidates = existingStorage ? [existingStorage] : ordered(square(spawn, 6).filter((p) =>
     distance(p, spawn) >= 2 && distance(p, controller) >= 4 && sources.every((s) => distance(p, s) >= 3) &&
-    clear(p) && access(p) >= 3), coreScore);
+    clear(p, STRUCTURE_STORAGE) && access(p) >= 3), coreScore);
   let storage: WorkPosition | undefined, coreLink: WorkPosition | undefined, terminal: WorkPosition | undefined,
     coreAccess: WorkPosition | undefined;
   let futureReachable = reachable;
   for (const p of coreCandidates.slice(0, 8)) {
     const neighbors = ordered(square(p, 1).filter((n) => distance(n, p) === 1 && clear(n) && access(n) >= 2),
       (n) => distance(n, spawn));
-    const link = neighbors[0];
+    const link = neighbors.find((n) => clear(n, STRUCTURE_LINK));
     const term = ordered(square(p, 1).filter((n) => distance(n, p) === 1 &&
-      (!link || distance(n, link) === 1) && clear(n) && access(n) >= 2), (n) => distance(n, spawn))[0];
+      (!link || distance(n, link) === 1) && clear(n, STRUCTURE_TERMINAL) && access(n) >= 2), (n) => distance(n, spawn))[0];
     const stand = neighbors.find((n) => (!link || distance(n, link) === 1) && (!term || distance(n, term) === 1));
     const future = flood([p, ...[link, term].filter((n): n is WorkPosition => Boolean(n))]);
     if (link && term && stand && future[key(stand)] &&
@@ -110,11 +120,11 @@ export function planLocalLayout(input: {
   const existingBuffer = ordered(durable(STRUCTURE_CONTAINER).filter((p) => distance(p, controller) <= 3 &&
     controllerClear(p, STRUCTURE_CONTAINER)), bufferScore)[0];
   const bufferCandidates = existingBuffer ? [existingBuffer] : ordered(square(controller, 2).filter((p) =>
-    distance(p, controller) === 2 && controllerClear(p) && futureReachable[key(p)] && access(p) >= 3), bufferScore);
+    distance(p, controller) === 2 && controllerClear(p, STRUCTURE_CONTAINER) && futureReachable[key(p)] && access(p) >= 3), bufferScore);
   let controllerBuffer: WorkPosition | undefined, controllerLink: WorkPosition | undefined, controllerWork: WorkPosition | undefined;
   for (const p of bufferCandidates.slice(0, 8)) {
     const link = ordered(square(p, 1).filter((n) => distance(n, p) === 1 && distance(n, controller) <= 2 &&
-      controllerClear(n) && access(n) >= 2), (n) => distance(n, spawn))[0];
+      controllerClear(n, STRUCTURE_LINK) && access(n) >= 2), (n) => distance(n, spawn))[0];
     const stand = ordered(square(p, 1).filter((n) => distance(n, p) === 1 && distance(n, controller) <= 3 &&
       (!link || distance(n, link) > 0) && controllerClear(n) && futureReachable[key(n)]), (n) => distance(n, spawn))[0];
     const future = link && flood([...core.filter((c) => c !== coreAccess), link]);

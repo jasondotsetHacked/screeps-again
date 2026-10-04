@@ -35,7 +35,9 @@ must select its own mobility policy.
 
 The former `travelTicks` conflated miner ingress with hauler consumer detours.
 Operations now expose `minerIngressTicks` and `haulTripTicks`. The existing source
-route is reused, with plain/road charged 1 and swamp 5. Miner ingress is:
+route is reused, charging non-swamp terrain 1 and swamp terrain 5 regardless of
+roads. A road over swamp still costs 5 in this conservative estimate; roads are
+not inspected for a movement discount. Miner ingress is:
 
 ```text
 ceil(non-MOVE parts / MOVE parts) * (source route cost + 5)
@@ -158,6 +160,14 @@ as protecting source-operation tiles. Existing storage/sites become the durable
 anchor. No layout Memory is added. If a reserved slot is already obstructed, a
 different valid footprint may be chosen; built infrastructure is not removed.
 
+Occupancy is type-aware: storage, link, and terminal slots reject existing roads
+and road sites; controller containers may coexist with built roads. Built friendly
+ramparts remain compatible. A different pending construction site blocks new
+placement even when its eventual structure could coexist. The planner and site
+adapter share this check, while the construction test fake enforces it independently.
+Existing durable storage/controller infrastructure is still adopted; roads are
+never removed to create a footprint.
+
 Reachability checks include current and future obstacles. A transient flood from
 spawn access validates the core after storage/link/terminal become obstacles,
 preserves access to currently reachable source buffers, and checks controller
@@ -212,24 +222,29 @@ economic benchmark claims.
 
 | Check | Current main baseline | Phase 3.1 |
 | --- | ---: | ---: |
-| Repository tests | 303 | 345 |
+| Repository tests | 303 | 356 |
 | MCP tests | 73 | 73 |
-| Combined tests | 376 | 418 |
+| Combined tests | 376 | 429 |
 | Failures / cancellations / skips / todos | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 |
 | `npm run check`: typecheck, tests, build | Pass | Pass |
 | AWS SAM lint | Pass | Pass |
 | MCP SAM lint | Pass | Pass |
 | `git diff --check` | Pass | Pass |
-| Unminified `dist/main.js` | 79,770 bytes | 92,859 bytes |
+| Unminified `dist/main.js` | 79,770 bytes | 93,343 bytes |
 
-**42 tests added**, including two focused lifecycle scenarios. Bundle delta is
-**+13,089 bytes (+16.408424%)**. The suite covers body/ingress policy, partial
+**53 tests added**, including two focused lifecycle scenarios. Bundle delta is
+**+13,573 bytes (+17.015169%)**. The suite covers body/ingress policy, partial
 loading, critical overrides, shared reservations, healthy ownership and eleven
 degradation cases, same-tick exhaustion and immobile labor, controller/storage
 sink order and contention, storage supply/loop prevention, unavailable paths and
 optional planning errors, deterministic layout/adoption, protected RCL3 expansion,
 RCL4 storage before extensions, site budgets, future obstacle access, and Memory
-recovery. Existing Stage 1/2/3, worker, safety, and wipe simulations remain green.
+recovery. The review follow-up adds 11 tests for road/site conflicts, legal
+controller-container and friendly-rampart coexistence, durable adoption, conservative
+no-footprint fallback, engine-like placement rejection, and edge-spawn reachability.
+Compared with the reviewed PR, repository tests rise 345 -> 356, combined tests
+418 -> 429, and the bundle grows 92,859 -> 93,343 bytes, **+484 bytes (+0.521220%)**.
+Existing Stage 1/2/3, worker, safety, and wipe simulations remain green.
 
 The new multi-tick scenarios resolve deferred intents: small miner deposits with
 a nearby empty worker and approaching hauler demonstrate batching/ownership and
@@ -251,8 +266,10 @@ can change accessibility before infrastructure exists. Built/adopted legacy
 infrastructure is retained even if no ideal future slots fit. Worker acquisition
 uses existing distance estimates, not an exact worker-to-store route planner.
 Sink reachability connects through spawn access rather than simulating every
-source-to-sink traffic path. Haul sizing retains its historical refill-detour
-estimate and may be inaccurate for the new controller/storage flow. A one-MOVE
+source-to-sink traffic path. Flood seeding uses legal walkability coordinates
+1..48, separately from the safe 3..46 bounds for layout slots. Haul sizing retains
+its historical refill-detour estimate and may be inaccurate for the new
+controller/storage flow. A one-MOVE
 miner is intentionally slower to reposition after displacement; replacement is
 best effort under worker survival and competing replacement requests.
 

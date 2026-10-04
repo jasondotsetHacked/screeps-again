@@ -39,6 +39,12 @@ function construction(f: ReturnType<typeof logisticsFixture>) {
     (type === LOOK_STRUCTURES ? f.structures : f.sites).filter((s) => s.pos.x === x && s.pos.y === y)) as Room['lookForAt'];
   f.room.createConstructionSite = ((x: number, y: number, type: BuildableStructureConstant) => {
     if (f.sites.some((s) => s.pos.x === x && s.pos.y === y)) return ERR_INVALID_TARGET;
+    // Model engine coexistence independently of the planner's compatibility
+    // helper, so an invalid strategic footprint cannot pass via a permissive fake.
+    if (f.structures.some((s) => s.pos.x === x && s.pos.y === y &&
+      !(s.structureType === STRUCTURE_RAMPART && (s as StructureRampart).my) &&
+      !(s.structureType === STRUCTURE_ROAD && type === STRUCTURE_CONTAINER) &&
+      !(s.structureType === STRUCTURE_CONTAINER && type === STRUCTURE_ROAD))) return ERR_INVALID_TARGET;
     placed.push({ x, y, type }); f.build(`site-${placed.length}`, type).pos = position(x, y); return OK;
   }) as Room['createConstructionSite'];
   return placed;
@@ -366,4 +372,97 @@ test('downstream observation adds no room finds and at most two bounded local ro
   observeLogisticsSinks(state, ops, planWork(state));
   assert.deepEqual([...f.calls], scans); assert.equal(f.paths.length - paths, 2);
   assert.ok(f.paths.slice(paths).every((p) => p.maxRooms === 1 && p.maxOps === 2000 && p.ignoreCreeps));
+});
+
+function roadAt(f: ReturnType<typeof logisticsFixture>, pos: { x: number; y: number }, site = false) {
+  if (site) return f.build(`road-${f.sites.length}`, STRUCTURE_ROAD).pos = position(pos.x, pos.y);
+  f.structures.push({ id: `road-${f.structures.length}`, pos: position(pos.x, pos.y), structureType: STRUCTURE_ROAD } as StructureRoad);
+}
+
+for (const site of [false, true]) {
+  test(`highest-ranked storage tile with a road ${site ? 'site' : 'structure'} yields to a valid alternative`, () => {
+    const f = logisticsFixture(); const preferred = observeLocalLayout(f.room, f.spawn).storage!;
+    roadAt(f, preferred, site);
+    const layout = observeLocalLayout(f.room, f.spawn);
+    assert.ok(layout.storage); assert.ok(distance(layout.storage, preferred) > 0);
+    assert.deepEqual(observeLocalLayout(f.room, f.spawn), layout);
+  });
+
+  test(`future link/terminal reservations exclude road ${site ? 'sites' : 'structures'}`, () => {
+    const f = logisticsFixture(); const previous = observeLocalLayout(f.room, f.spawn);
+    const roads = [previous.coreLink!, previous.terminal!, previous.controllerLink!];
+    roads.forEach((pos) => roadAt(f, pos, site));
+    const layout = observeLocalLayout(f.room, f.spawn);
+    assert.ok(layout.storage && layout.coreLink && layout.terminal && layout.controllerLink);
+    for (const tile of [layout.storage, layout.coreLink, layout.terminal, layout.controllerLink]) {
+      assert.ok(roads.every((road) => distance(tile!, road) > 0));
+    }
+  });
+
+  test(`RCL4 places storage despite preferred tile's road ${site ? 'site' : 'structure'} with engine-like coexistence`, () => {
+    const f = logisticsFixture({ level: 4 }); const placed = construction(f);
+    Object.assign(CONTROLLER_STRUCTURES, { extension: { 4: 20 }, tower: { 4: 1 } });
+    const ops = observeSourceOperations(observeColony(f.room));
+    const preferred = observeLocalLayout(f.room, f.spawn, ops).storage!;
+    roadAt(f, preferred, site);
+    assert.equal(f.room.createConstructionSite(preferred.x, preferred.y, STRUCTURE_STORAGE), ERR_INVALID_TARGET);
+    assert.equal(ensureLayoutSite(f.room, preferred, STRUCTURE_STORAGE), 0);
+    Game.time = 25; runConstruction(f.room, ops);
+    const created = placed.find((s) => s.type === STRUCTURE_STORAGE); assert.ok(created);
+    assert.ok(created.x !== preferred.x || created.y !== preferred.y);
+    Game.time = 50; runConstruction(f.room, ops);
+    assert.equal(placed.filter((s) => s.type === STRUCTURE_STORAGE).length, 1);
+    assert.ok((site ? f.sites : f.structures).some((s) => s.structureType === STRUCTURE_ROAD &&
+      s.pos.x === preferred.x && s.pos.y === preferred.y));
+  });
+}
+
+test('controller container uses a built road and adopts durable road/container infrastructure', () => {
+  const f = logisticsFixture(); construction(f);
+  const planned = observeLocalLayout(f.room, f.spawn).controllerBuffer!;
+  roadAt(f, planned);
+  assert.deepEqual(observeLocalLayout(f.room, f.spawn).controllerBuffer, planned);
+  assert.equal(ensureLayoutSite(f.room, planned, STRUCTURE_CONTAINER), 1);
+  assert.equal(ensureLayoutSite(f.room, planned, STRUCTURE_CONTAINER), 0);
+  f.sites.splice(0); f.repair('durable-controller').pos = position(planned.x, planned.y);
+  assert.deepEqual(observeLocalLayout(f.room, f.spawn).controllerBuffer, planned);
+  assert.equal(ensureLayoutSite(f.room, planned, STRUCTURE_CONTAINER), 0);
+});
+
+test('friendly ramparts permit strategic storage placement and durable storage stays adopted', () => {
+  const f = logisticsFixture(); construction(f);
+  const planned = observeLocalLayout(f.room, f.spawn).storage!;
+  f.structures.push({ id: 'friendly', pos: position(planned.x, planned.y), structureType: STRUCTURE_RAMPART, my: true } as StructureRampart);
+  assert.deepEqual(observeLocalLayout(f.room, f.spawn).storage, planned);
+  assert.equal(ensureLayoutSite(f.room, planned, STRUCTURE_STORAGE), 1);
+  assert.equal(ensureLayoutSite(f.room, planned, STRUCTURE_STORAGE), 0);
+  f.sites.splice(0); storage(f).pos = position(planned.x, planned.y);
+  assert.deepEqual(observeLocalLayout(f.room, f.spawn).storage, planned);
+  assert.equal(ensureLayoutSite(f.room, planned, STRUCTURE_STORAGE), 0);
+});
+
+test('pending rampart/road sites block simultaneous controller construction while built road coexistence is allowed', () => {
+  for (const type of [STRUCTURE_ROAD, STRUCTURE_RAMPART]) {
+    const f = logisticsFixture(); construction(f);
+    const planned = observeLocalLayout(f.room, f.spawn).controllerBuffer!;
+    Object.assign(f.build('pending', type), { pos: position(planned.x, planned.y), my: true });
+    assert.equal(ensureLayoutSite(f.room, planned, STRUCTURE_CONTAINER), 0);
+    assert.ok(distance(observeLocalLayout(f.room, f.spawn).controllerBuffer!, planned) > 0);
+  }
+});
+
+test('road-covered core candidates decline a new footprint conservatively', () => {
+  const f = logisticsFixture(); const placed = construction(f);
+  for (let y = 5; y <= 17; y++) for (let x = 5; x <= 17; x++) roadAt(f, { x, y });
+  const layout = observeLocalLayout(f.room, f.spawn);
+  assert.equal(layout.storage, undefined); assert.equal(layout.coreLink, undefined); assert.equal(layout.terminal, undefined);
+  assert.equal(ensureLayoutSite(f.room, layout.storage, STRUCTURE_STORAGE), 0);
+  assert.equal(placed.length, 0);
+});
+
+test('edge spawn seeds reachable walkability at 1..48 while layout slots remain inside 3..46', () => {
+  const f = logisticsFixture(); f.spawn.pos = position(1, 25);
+  const layout = observeLocalLayout(f.room, f.spawn);
+  assert.ok(layout.storage && layout.coreAccess && layout.controllerBuffer);
+  assert.ok(layoutReservations(layout).every((p) => p.x >= 3 && p.x <= 46 && p.y >= 3 && p.y <= 46));
 });

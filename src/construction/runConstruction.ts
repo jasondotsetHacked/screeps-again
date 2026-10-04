@@ -1,7 +1,7 @@
 import { chooseSourceTiles } from '../operations/observeSources';
 import type { SourceOperation } from '../operations/sourceOperation';
 import { distance } from '../operations/sourceOperation';
-import { layoutReservations, planLocalLayout, type LocalLayout } from './localLayout';
+import { layoutReservations, layoutCoexistence, planLocalLayout, type LocalLayout, type LayoutObject } from './localLayout';
 import type { WorkPosition } from '../work/demands';
 
 const PLAN_INTERVAL = 25;
@@ -158,6 +158,12 @@ function placeRoadsOnPath(
   return placed;
 }
 
+function layoutObject(s: Structure | ConstructionSite, site = false): LayoutObject {
+  return { pos: s.pos, type: s.structureType, site, my: (s as OwnedStructure).my,
+    blocking: OBSTACLE_OBJECT_TYPES.some((type) => type === s.structureType) || s.structureType === STRUCTURE_RAMPART &&
+      !(s as StructureRampart).my && !(s as StructureRampart).isPublic };
+}
+
 export function observeLocalLayout(room: Room, spawn: StructureSpawn, operations?: readonly SourceOperation[]): LocalLayout {
   const structures = room.find(FIND_STRUCTURES);
   const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
@@ -168,18 +174,16 @@ export function observeLocalLayout(room: Room, spawn: StructureSpawn, operations
   return planLocalLayout({ roomName: room.name, spawn: spawn.pos, controller: room.controller!.pos,
     sources: sources.map((s) => s.pos), sourceBuffers: tiles,
     fixed: room.find(FIND_MINERALS).map((m) => m.pos),
-    objects: [...structures, ...sites].map((s) => ({ pos: s.pos, type: s.structureType,
-      blocking: OBSTACLE_OBJECT_TYPES.some((type) => type === s.structureType) || s.structureType === STRUCTURE_RAMPART &&
-        !(s as StructureRampart).my && !(s as StructureRampart).isPublic })),
+    objects: [...structures.map((s) => layoutObject(s)), ...sites.map((s) => layoutObject(s, true))],
     terrain: (x, y) => terrain.get(x, y) });
 }
 
 export function ensureLayoutSite(room: Room, tile: WorkPosition | undefined, type: typeof STRUCTURE_STORAGE | typeof STRUCTURE_CONTAINER): number {
   if (!tile) return 0;
-  const objects = [...room.find(FIND_STRUCTURES), ...room.find(FIND_MY_CONSTRUCTION_SITES)];
-  if (objects.some((s) => s.structureType === type && (type === STRUCTURE_STORAGE || distance(s.pos, tile) === 0))) return 0;
-  if (objects.some((s) => distance(s.pos, tile) === 0 && s.structureType !== STRUCTURE_ROAD &&
-    !(s.structureType === STRUCTURE_RAMPART && (s as StructureRampart).my))) return 0;
+  const objects = [...room.find(FIND_STRUCTURES).map((s) => layoutObject(s)),
+    ...room.find(FIND_MY_CONSTRUCTION_SITES).map((s) => layoutObject(s, true))];
+  if (objects.some((s) => s.type === type && (type === STRUCTURE_STORAGE || distance(s.pos, tile) === 0))) return 0;
+  if (objects.some((s) => distance(s.pos, tile) === 0 && !layoutCoexistence(type, s))) return 0;
   return room.createConstructionSite(tile.x, tile.y, type) === OK ? 1 : 0;
 }
 
