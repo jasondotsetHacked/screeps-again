@@ -1,5 +1,5 @@
 import type { ColonyState } from '../colony/colonyState';
-import { selectEnergySupply, type EnergySupply } from '../colony/planEnergy';
+import { planWorkerEnergyAccess, type EnergySupply } from '../colony/planEnergy';
 import type { WorkerAssignment } from '../work/assignments';
 import type { WorkerExecution } from '../work/execution';
 import type { RefillConsumer } from '../logistics/planHauling';
@@ -8,6 +8,7 @@ export interface WorkerEnergyContext {
   supplies: EnergySupply[];
   sourceWork: Map<string, number>;
   consumers?: RefillConsumer[];
+  fallbackSupplies?: EnergySupply[];
 }
 
 export function workerEnergyContext(state: ColonyState): WorkerEnergyContext {
@@ -32,9 +33,15 @@ function outcome(creep: Creep, target: RoomObject, result: number,
 function acquire(creep: Creep, context: WorkerEnergyContext): WorkerExecution {
   const work = creep.getActiveBodyparts(WORK);
   const freeCapacity = creep.store.getFreeCapacity(RESOURCE_ENERGY);
-  const supply = selectEnergySupply({ pos: creep.pos, work,
+  const consumer = { pos: creep.pos, work,
     move: creep.getActiveBodyparts(MOVE), freeCapacity, sourceId: creep.memory.sourceId
-  }, context.supplies, context.sourceWork);
+  };
+  const { supply, releaseFallback } = planWorkerEnergyAccess(consumer, context.supplies,
+    context.fallbackSupplies ?? [], context.sourceWork);
+  if (releaseFallback) {
+    context.supplies.push(...context.fallbackSupplies!);
+    context.fallbackSupplies = [];
+  }
   const target = supply && Game.getObjectById(supply.id as Id<Source | Resource | StructureContainer | Tombstone | Ruin>);
   if (!supply || !target) return { creepName: creep.name, phase: 'blocked', accepted: false };
 

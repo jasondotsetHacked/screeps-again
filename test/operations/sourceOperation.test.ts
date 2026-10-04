@@ -4,7 +4,7 @@ import { logisticsFixture } from '../helpers/logistics';
 import { position } from '../helpers/colony';
 import { observeColony } from '../../src/colony/colonyState';
 import { observeSourceOperations, chooseSourceTiles } from '../../src/operations/observeSources';
-import { haulingRequirement, minerBody, haulerBody, requestSourcePopulation,
+import { haulingRequirement, localMinerBody, haulerBody, requestSourcePopulation,
   specialistLead, selectSourceTile, planSourceOperation } from '../../src/operations/sourceOperation';
 import { bodyCost } from '../../src/spawning/body';
 import { ensureSourceContainers } from '../../src/construction/runConstruction';
@@ -96,9 +96,9 @@ test('two adjacent sources cannot share a buffer or mining tile', () => {
 
 test('specialist bodies are affordable, saturate an owned source and have explicit mobility', () => {
   logisticsFixture();
-  assert.equal(bodyCost(minerBody(10)), 700);
-  assert.equal(minerBody(10).filter((p) => p === WORK).length * HARVEST_POWER, 10);
-  assert.deepEqual(minerBody(5), [WORK, WORK, WORK, CARRY, MOVE, MOVE]);
+  assert.equal(bodyCost(localMinerBody(10)), 600);
+  assert.equal(localMinerBody(10).filter((p) => p === WORK).length * HARVEST_POWER, 10);
+  assert.deepEqual(localMinerBody(5), [WORK, WORK, WORK, CARRY, MOVE]);
   assert.equal(bodyCost(haulerBody(700)), 700);
   assert.equal(bodyCost(haulerBody(5000)), 800);
   assert.equal(haulerBody(800).includes(WORK), false);
@@ -116,9 +116,9 @@ test('hauling need responds to income, trip duration and carry rather than fixed
 test('readiness gates unavailable colonies, missing path, body capacity and bounded haul need', () => {
   const f = logisticsFixture();
   const base = { home: f.room.name, source: { id: f.source.id, pos: f.source.pos }, energyCapacity: 3000,
-    tile: operations(f)[0].tile, travelTicks: 5, capacity: 800, functioning: true, workforceReady: true };
-  for (const [change, reason] of [[{ functioning: false }, 'colony-unavailable'], [{ travelTicks: undefined }, 'no-path'],
-    [{ capacity: 699 }, 'capacity'], [{ travelTicks: 100 }, 'haul-limit'], [{ workforceReady: false }, 'worker-recovery']] as const) {
+    tile: operations(f)[0].tile, haulTripTicks: 5, capacity: 800, functioning: true, workforceReady: true };
+  for (const [change, reason] of [[{ functioning: false }, 'colony-unavailable'], [{ haulTripTicks: undefined }, 'no-path'],
+    [{ capacity: 599 }, 'capacity'], [{ haulTripTicks: 100 }, 'haul-limit'], [{ workforceReady: false }, 'worker-recovery']] as const) {
     const o = planSourceOperation({ ...base, ...change }); assert.equal(o.reason, reason); assert.equal(o.enabled, false);
   }
 });
@@ -188,11 +188,11 @@ test('swamp path and consumer detour raise hauling need deterministically', () =
   const f = logisticsFixture(); const plain = operations(f)[0];
   f.room.getTerrain = (() => ({ get: () => TERRAIN_MASK_SWAMP })) as unknown as Room['getTerrain'];
   const swamp = operations(f)[0];
-  assert.equal(swamp.travelTicks, plain.travelTicks * 5);
+  assert.equal(swamp.haulTripTicks, plain.haulTripTicks * 5);
   assert.ok(bodyCost(swamp.haulerBody) >= bodyCost(plain.haulerBody));
   f.refill('far-tower', 100, STRUCTURE_TOWER).pos = position(25, 25);
   const far = operations(f)[0];
-  assert.ok(far.travelTicks > swamp.travelTicks); assert.equal(far.reason, 'haul-limit');
+  assert.ok(far.haulTripTicks > swamp.haulTripTicks); assert.equal(far.reason, 'haul-limit');
 });
 
 test('explicit worker priority wins bootstrap, recovery and normal despite adversarial specialist IDs', () => {

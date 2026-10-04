@@ -52,7 +52,7 @@ export function chooseSourceTiles(room: Room, sources: readonly Source[], struct
   return chosen;
 }
 
-function localRouteTicks(room: Room, tile: SourceTile, anchor: RoomPosition): number | undefined {
+export function localRouteTicks(room: Room, tile: { x: number; y: number }, anchor: RoomPosition): number | undefined {
   const origin = new RoomPosition(tile.x, tile.y, room.name);
   const path = origin.findPathTo(anchor, { ignoreCreeps: true, maxRooms: 1, range: 1, maxOps: 2000 });
   const last = path.at(-1) ?? tile;
@@ -69,7 +69,7 @@ export function observeSourceOperations(state: ColonyState): SourceOperation[] {
     state.workers.filter((w) => w.work > 0 && w.carry > 0 && w.move > 0).length >= 2;
   return [...state.sources].sort((a, b) => a.id.localeCompare(b.id)).map((source) => {
     const tile = tiles.get(source.id);
-    let travelTicks: number | undefined;
+    let haulTripTicks: number | undefined;
     if (tile?.containerId && tile.routeTicks !== undefined) {
       // 1:1 CARRY:MOVE bodies take five ticks per loaded swamp step. Detour
       // allowance to the farthest refill consumer is bounded within this room.
@@ -77,10 +77,10 @@ export function observeSourceOperations(state: ColonyState): SourceOperation[] {
         (s.structureType === STRUCTURE_EXTENSION || s.structureType === STRUCTURE_TOWER ||
           s.structureType === STRUCTURE_SPAWN) && (s as OwnedStructure).my)
         .map((s) => distance(s.pos, spawn.pos) * 5));
-      travelTicks = tile.routeTicks + detour;
+      haulTripTicks = tile.routeTicks + detour;
     }
     return planSourceOperation({ home: state.room.name, source: workTarget(source),
-      energyCapacity: source.energyCapacity ?? SOURCE_ENERGY_CAPACITY, tile, travelTicks,
+      energyCapacity: source.energyCapacity ?? SOURCE_ENERGY_CAPACITY, tile, haulTripTicks,
       capacity: state.energy.capacity, functioning: true, workforceReady });
   });
 }

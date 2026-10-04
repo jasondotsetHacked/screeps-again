@@ -1,13 +1,17 @@
 import { chooseSourceTiles } from '../operations/observeSources';
 import type { SourceOperation } from '../operations/sourceOperation';
+import { distance } from '../operations/sourceOperation';
+import { layoutReservations, planLocalLayout, type LocalLayout } from './localLayout';
+import type { WorkPosition } from '../work/demands';
 
 const PLAN_INTERVAL = 25;
 const ROAD_INTERVAL = 100;
 const MAX_NEW_SITES_PER_PLAN = 4;
 
-function buildable(room: Room, x: number, y: number): boolean {
+function buildable(room: Room, x: number, y: number, reserved: readonly WorkPosition[] = []): boolean {
   if (x <= 1 || x >= 48 || y <= 1 || y >= 48) return false;
   if (room.getTerrain().get(x, y) === TERRAIN_MASK_WALL) return false;
+  if (reserved.some((p) => p.x === x && p.y === y)) return false;
 
   const structures = room.lookForAt(LOOK_STRUCTURES, x, y);
   if (structures.some((structure) => structure.structureType !== STRUCTURE_ROAD)) {
@@ -34,7 +38,8 @@ function candidateTiles(
   room: Room,
   origin: RoomPosition,
   minRange: number,
-  maxRange: number
+  maxRange: number,
+  reserved: readonly WorkPosition[]
 ): RoomPosition[] {
   const candidates: RoomPosition[] = [];
 
@@ -46,7 +51,7 @@ function candidateTiles(
         }
 
         if ((x + y) % 2 !== 0) continue;
-        if (!buildable(room, x, y)) continue;
+        if (!buildable(room, x, y, reserved)) continue;
         candidates.push(new RoomPosition(x, y, room.name));
       }
     }
@@ -60,13 +65,14 @@ function placeStructureSites(
   spawn: StructureSpawn,
   structureType: BuildableStructureConstant,
   desired: number,
-  maxNew: number
+  maxNew: number,
+  reserved: readonly WorkPosition[]
 ): number {
   let existing = countStructuresAndSites(room, structureType);
   let placed = 0;
   if (existing >= desired) return placed;
 
-  const candidates = candidateTiles(room, spawn.pos, 2, 7);
+  const candidates = candidateTiles(room, spawn.pos, 2, 7, reserved);
 
   for (const position of candidates) {
     if (existing >= desired || placed >= maxNew) break;
@@ -128,7 +134,8 @@ function placeRoadsOnPath(
   room: Room,
   from: RoomPosition,
   target: RoomPosition,
-  maxNew: number
+  maxNew: number,
+  reserved: readonly WorkPosition[]
 ): number {
   const path = from.findPathTo(target, {
     ignoreCreeps: true,
@@ -139,7 +146,7 @@ function placeRoadsOnPath(
 
   for (const step of path) {
     if (placed >= maxNew) break;
-    if (!buildable(room, step.x, step.y)) continue;
+    if (!buildable(room, step.x, step.y, reserved)) continue;
 
     if (
       room.createConstructionSite(step.x, step.y, STRUCTURE_ROAD) === OK
@@ -149,6 +156,31 @@ function placeRoadsOnPath(
   }
 
   return placed;
+}
+
+export function observeLocalLayout(room: Room, spawn: StructureSpawn, operations?: readonly SourceOperation[]): LocalLayout {
+  const structures = room.find(FIND_STRUCTURES);
+  const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
+  const sources = room.find(FIND_SOURCES);
+  const tiles = operations ? operations.flatMap((o) => o.tile ? [o.tile] : [])
+    : [...chooseSourceTiles(room, sources, structures, sites, spawn.pos).values()].filter((p): p is NonNullable<typeof p> => Boolean(p));
+  const terrain = room.getTerrain();
+  return planLocalLayout({ roomName: room.name, spawn: spawn.pos, controller: room.controller!.pos,
+    sources: sources.map((s) => s.pos), sourceBuffers: tiles,
+    fixed: room.find(FIND_MINERALS).map((m) => m.pos),
+    objects: [...structures, ...sites].map((s) => ({ pos: s.pos, type: s.structureType,
+      blocking: OBSTACLE_OBJECT_TYPES.some((type) => type === s.structureType) || s.structureType === STRUCTURE_RAMPART &&
+        !(s as StructureRampart).my && !(s as StructureRampart).isPublic })),
+    terrain: (x, y) => terrain.get(x, y) });
+}
+
+export function ensureLayoutSite(room: Room, tile: WorkPosition | undefined, type: typeof STRUCTURE_STORAGE | typeof STRUCTURE_CONTAINER): number {
+  if (!tile) return 0;
+  const objects = [...room.find(FIND_STRUCTURES), ...room.find(FIND_MY_CONSTRUCTION_SITES)];
+  if (objects.some((s) => s.structureType === type && (type === STRUCTURE_STORAGE || distance(s.pos, tile) === 0))) return 0;
+  if (objects.some((s) => distance(s.pos, tile) === 0 && s.structureType !== STRUCTURE_ROAD &&
+    !(s.structureType === STRUCTURE_RAMPART && (s as StructureRampart).my))) return 0;
+  return room.createConstructionSite(tile.x, tile.y, type) === OK ? 1 : 0;
 }
 
 export function runConstruction(room: Room, operations?: readonly SourceOperation[]): void {
@@ -163,9 +195,15 @@ export function runConstruction(room: Room, operations?: readonly SourceOperatio
     );
 
   if (!spawn) return;
+  if (Game.time % PLAN_INTERVAL !== 0) return;
+  const layout = observeLocalLayout(room, spawn, operations);
+  const reserved = [...layoutReservations(layout), ...(operations?.flatMap((o) => o.tile ? [o.tile] : []) ?? [])];
 
   if (Game.time % PLAN_INTERVAL === 0) {
     let remaining = MAX_NEW_SITES_PER_PLAN;
+    // Establish the strategic site even while RCL4 extension capacity is still
+    // growing. Construction labor continues to rank extensions above storage.
+    if (controller.level >= 4) remaining -= ensureLayoutSite(room, layout.storage, STRUCTURE_STORAGE);
 
     const extensionLimit =
       CONTROLLER_STRUCTURES[STRUCTURE_EXTENSION][controller.level] ?? 0;
@@ -175,7 +213,8 @@ export function runConstruction(room: Room, operations?: readonly SourceOperatio
       spawn,
       STRUCTURE_EXTENSION,
       extensionLimit,
-      remaining
+      remaining,
+      reserved
     );
 
     // Early energy capacity is the highest-value infrastructure for the
@@ -196,7 +235,8 @@ export function runConstruction(room: Room, operations?: readonly SourceOperatio
         spawn,
         STRUCTURE_TOWER,
         towerLimit,
-        remaining
+        remaining,
+        reserved
       );
     }
 
@@ -206,6 +246,9 @@ export function runConstruction(room: Room, operations?: readonly SourceOperatio
 
     if (remaining > 0) {
       remaining -= ensureSourceContainers(room, spawn, remaining, operations);
+    }
+    if (remaining > 0 && controller.level >= 2) {
+      remaining -= ensureLayoutSite(room, layout.controllerBuffer, STRUCTURE_CONTAINER);
     }
   }
 
@@ -220,11 +263,11 @@ export function runConstruction(room: Room, operations?: readonly SourceOperatio
 
     for (const source of room.find(FIND_SOURCES)) {
       if (remaining <= 0) break;
-      remaining -= placeRoadsOnPath(room, spawn.pos, source.pos, remaining);
+      remaining -= placeRoadsOnPath(room, spawn.pos, source.pos, remaining, reserved);
     }
 
     if (remaining > 0) {
-      placeRoadsOnPath(room, spawn.pos, controller.pos, remaining);
+      placeRoadsOnPath(room, spawn.pos, controller.pos, remaining, reserved);
     }
   }
 }

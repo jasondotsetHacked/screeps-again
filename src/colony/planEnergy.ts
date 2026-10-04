@@ -14,6 +14,19 @@ export interface EnergyConsumer {
   sourceId?: string;
 }
 
+export function planWorkerEnergyAccess(worker: EnergyConsumer, supplies: readonly EnergySupply[],
+  fallback: readonly EnergySupply[], sourceWork: ReadonlyMap<string, number>): {
+    supply?: EnergySupply; releaseFallback: boolean;
+  } {
+  const supply = selectEnergySupply(worker, supplies, sourceWork);
+  // Soft source ownership gives way when labor cannot acquire one useful load
+  // downstream, including immobile workers and peers exhausting the projection.
+  const releaseFallback = fallback.length > 0 && worker.freeCapacity > 0 &&
+    (!supply || supply.kind === 'harvest' || supply.amount < Math.min(worker.freeCapacity, CARRY_CAPACITY));
+  return { supply: releaseFallback ? selectEnergySupply(worker, [...supplies, ...fallback], sourceWork) : supply,
+    releaseFallback };
+}
+
 // Acquisition is a separate, pure decision: energy gained per estimated travel
 // and acquisition tick, with contention for self-harvesting generalists.
 export function selectEnergySupply(

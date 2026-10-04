@@ -25,10 +25,20 @@ export function selectSourceTile(tiles: readonly SourceTile[], anchor: WorkPosit
       a.y - b.y || a.x - b.x)[0];
 }
 
-export function minerBody(income: number): BodyPartConstant[] {
+// Home-room miners spend almost their whole lifetime stationary. Remote
+// ingress deserves a separate body policy when remote operations are introduced.
+export function localMinerBody(income: number): BodyPartConstant[] {
   const work = Math.min(5, Math.max(1, Math.ceil(income / HARVEST_POWER)));
-  return [...Array<BodyPartConstant>(work).fill(WORK), CARRY,
-    ...Array<BodyPartConstant>(Math.ceil((work + 1) / 2)).fill(MOVE)];
+  return [...Array<BodyPartConstant>(work).fill(WORK), CARRY, MOVE];
+}
+
+export function localMinerIngress(body: readonly BodyPartConstant[], routeTicks: number): number {
+  const moves = body.filter((part) => part === MOVE).length;
+  const weight = body.length - moves;
+  // Conservatively include CARRY weight even though ingress is normally empty.
+  // The reverse path ends at spawn range one; add a worst-case swamp tile for
+  // the exact mining position and rounding. Roads deliberately get no discount.
+  return moves > 0 ? Math.ceil(weight / moves) * (routeTicks + 5) : Infinity;
 }
 
 export function haulerBody(capacity: number): BodyPartConstant[] {
@@ -51,7 +61,8 @@ export interface SourceOperation {
   minerBody: BodyPartConstant[];
   haulerBody: BodyPartConstant[];
   haulers: number;
-  travelTicks: number;
+  haulTripTicks: number;
+  minerIngressTicks: number;
   ready: boolean;
   enabled: boolean;
   reason: 'ready' | 'no-tile' | 'no-buffer' | 'no-path' | 'capacity' | 'haul-limit' | 'worker-recovery' | 'colony-unavailable';
@@ -59,32 +70,33 @@ export interface SourceOperation {
 
 export function planSourceOperation(input: {
   home: string; source: WorkTarget; energyCapacity: number; tile?: SourceTile;
-  travelTicks?: number; capacity: number; functioning: boolean; workforceReady: boolean;
+  haulTripTicks?: number; capacity: number; functioning: boolean; workforceReady: boolean;
 }): SourceOperation {
   const income = input.energyCapacity / ENERGY_REGEN_TIME;
-  const miner = minerBody(income);
+  const miner = localMinerBody(income);
   // Buy only the CARRY needed for this trip (at least two parts), capped at
   // eight balanced pairs. Longer trips request multiple bodies below.
-  const desiredPairs = Math.max(2, Math.ceil(income * (2 * (input.travelTicks ?? 0) + 2) * 1.2 / CARRY_CAPACITY));
+  const desiredPairs = Math.max(2, Math.ceil(income * (2 * (input.haulTripTicks ?? 0) + 2) * 1.2 / CARRY_CAPACITY));
   const hauler = haulerBody(Math.min(input.capacity, desiredPairs * 100));
-  const haulers = haulingRequirement(income, input.travelTicks ?? 0,
+  const haulers = haulingRequirement(income, input.haulTripTicks ?? 0,
     hauler.filter((part) => part === CARRY).length * CARRY_CAPACITY);
   const reason = !input.functioning ? 'colony-unavailable'
     : !input.tile ? 'no-tile' : !input.tile.containerId ? 'no-buffer'
       : input.capacity < bodyCost(miner) || hauler.length === 0 ? 'capacity'
-        : input.travelTicks === undefined ? 'no-path'
+        : input.haulTripTicks === undefined || input.tile.routeTicks === undefined ? 'no-path'
           : haulers > 3 ? 'haul-limit' : !input.workforceReady ? 'worker-recovery' : 'ready';
   const ready = reason === 'ready' || reason === 'worker-recovery';
   return { id: localSourceId(input.source.id), home: input.home, source: input.source, tile: input.tile,
     bufferId: input.tile?.containerId, income, minerBody: miner, haulerBody: hauler, haulers,
-    travelTicks: input.travelTicks ?? 0, ready, enabled: reason === 'ready', reason };
+    haulTripTicks: input.haulTripTicks ?? 0,
+    minerIngressTicks: localMinerIngress(miner, input.tile?.routeTicks ?? 0),
+    ready, enabled: reason === 'ready', reason };
 }
 
 export function specialistLead(operation: SourceOperation, kind: 'miner' | 'hauler'): number {
   const body = kind === 'miner' ? operation.minerBody : operation.haulerBody;
-  // Miner has 3 MOVE for 6 non-MOVE parts; loaded swamp travel takes two times
-  // the hauler's conservative travel estimate. Include spawn queue headroom.
-  return body.length * CREEP_SPAWN_TIME + operation.travelTicks * (kind === 'miner' ? 2 : 1) + 50;
+  return body.length * CREEP_SPAWN_TIME +
+    (kind === 'miner' ? operation.minerIngressTicks : operation.haulTripTicks) + 50;
 }
 
 export interface MinerCandidate {
@@ -128,7 +140,7 @@ export function requestSourcePopulation(operations: readonly SourceOperation[],
       requests.push({ id: `${operation.home}:${operation.id}:${kind}`, identity, priority: 'logistics',
         body: kind === 'miner' ? operation.minerBody : operation.haulerBody, initialMemory: {},
         reason: count.aging ? 'replacement' : 'local-source',
-        explanation: `[spawn] ${operation.home} ${kind} ${operation.id} ${count.effective + 1}/${target}; income=${operation.income}; travel=${operation.travelTicks}; lead=${lead}` });
+        explanation: `[spawn] ${operation.home} ${kind} ${operation.id} ${count.effective + 1}/${target}; income=${operation.income}; haul=${operation.haulTripTicks}; ingress=${operation.minerIngressTicks}; lead=${lead}` });
     }
   }
   // Maintain established chains before adding new specialist populations.

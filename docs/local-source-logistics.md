@@ -1,5 +1,11 @@
 # Stage 3: local source operations and logistics
 
+Phase 3.1 refines the deployed Stage 3 pilot in
+[local-logistics-refinement.md](local-logistics-refinement.md). That document
+supersedes the miner body/replacement, hauler loading, buffer-access, and
+construction policies below. This Stage 3 document retains its original
+architecture and validation record.
+
 ## Goal and boundary
 
 An established owned colony can transition viable local sources to dedicated

@@ -14,7 +14,7 @@ export function runHauler(creep: Creep, operation: SourceOperation | undefined,
       creep.getActiveBodyparts(CARRY) === 0 || creep.getActiveBodyparts(MOVE) === 0) return 'blocked';
   if (!assignment) return 'idle';
   if (assignment.target.pos.roomName !== operation.home) return 'blocked';
-  const target = Game.getObjectById(assignment.target.id as Id<StructureContainer | StructureSpawn | StructureExtension | StructureTower>);
+  const target = Game.getObjectById(assignment.target.id as Id<StructureContainer | StructureSpawn | StructureExtension | StructureTower | StructureStorage>);
   if (!target || target.pos.roomName !== operation.home) return 'blocked';
   const result = assignment.kind === 'withdraw'
     ? creep.withdraw(target, RESOURCE_ENERGY, assignment.amount)
