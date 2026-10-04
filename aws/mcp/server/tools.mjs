@@ -25,13 +25,19 @@ export function queryEvent(name, input, shard) {
 
 export function createServer({ shard, query, logger = console }) {
   const server = new McpServer({ name: 'screeps-private-telemetry', version: '0.1.0' });
+  const descriptors = [];
   for (const tool of TOOLS) {
-    server.registerTool(tool.name, {
+    const securitySchemes = [{ type: 'oauth2', scopes: ['telemetry:read'] }];
+    const descriptor = {
+      name: tool.name,
       description: tool.description,
-      inputSchema: tool.schema,
+      inputSchema: z.toJSONSchema(tool.schema),
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-      _meta: { securitySchemes: [{ type: 'oauth2', scopes: ['telemetry:read'] }] }
-    }, async args => {
+      securitySchemes,
+      _meta: { securitySchemes }
+    };
+    descriptors.push(descriptor);
+    server.registerTool(tool.name, { ...descriptor, inputSchema: tool.schema }, async args => {
       try {
         const result = await query(queryEvent(tool.name, args, shard));
         logger.log(JSON.stringify({ event: 'mcp-tool-completed', tool: tool.name }));
@@ -43,6 +49,9 @@ export function createServer({ shard, query, logger = console }) {
       }
     });
   }
+  // SDK 2.3.0 filters top-level extensions from its generated descriptors.
+  // Keep SDK dispatch/validation, while publishing the full OpenAI auth metadata.
+  server.server.setRequestHandler('tools/list', () => ({ tools: descriptors }));
   return server;
 }
 

@@ -40,35 +40,52 @@ const backend = reply => createBackend({ functionArn, client: { send: async () =
 const lambdaReply = value => ({ StatusCode: 200, Payload: Buffer.from(JSON.stringify(value)) });
 async function clientFor(t, query, options = {}) {
   const gateway = createGateway({ config, authenticate, query, logger: logs() });
+  const listedDescriptors = [];
   const client = new Client({ name: 'synthetic-test', version: '1.0.0' }, options);
   const transport = new StreamableHTTPClientTransport(new URL(resource), {
     requestInit: { headers: { authorization: `Bearer ${validToken}` } },
-    fetch: (url, init) => gateway.fetch(new Request(url, init))
+    fetch: async (url, init) => {
+      const response = await gateway.fetch(new Request(url, init));
+      const body = await response.clone().text();
+      const messages = body.startsWith('event:') ? body.split('\n').filter(line => line.startsWith('data: ')).map(line => line.slice(6)) : [body];
+      for (const message of messages) {
+        if (!message) continue;
+        const result = JSON.parse(message).result;
+        if (result?.tools) listedDescriptors.push(...result.tools);
+      }
+      return response;
+    }
   });
   t.after(async () => { await client.close(); await gateway.close(); });
   await client.connect(transport);
-  return { client, transport };
+  return { client, transport, listedDescriptors };
 }
 
-test('SDK lists exactly three read-only tools with strict optional schemas and OAuth metadata', async t => {
-  const { client } = await clientFor(t, async () => assert.fail('listing invoked AWS'), { versionNegotiation: { mode: 'auto' } });
-  const { tools } = await client.listTools();
-  assert.deepEqual(tools.map(tool => tool.name), TOOLS.map(tool => tool.name));
-  for (const tool of tools) {
-    assert.equal(tool.inputSchema.additionalProperties, false);
-    assert.equal(tool.inputSchema.type, 'object');
-    assert.equal(tool.inputSchema.properties.room.maxLength, 20);
-    assert.equal(tool.inputSchema.properties.room.pattern, '^[WE]\\d+[NS]\\d+$');
-    assert.deepEqual(tool.inputSchema.required ?? [], []);
-    assert.deepEqual(tool.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
-    assert.deepEqual(tool._meta.securitySchemes, [{ type: 'oauth2', scopes: ['telemetry:read'] }]);
-    assert.deepEqual(Object.keys(tool.inputSchema.properties), tool.name === 'screeps_latest' ? ['room'] : ['room', 'hours']);
-    if (tool.name !== 'screeps_latest') {
-      assert.equal(tool.inputSchema.properties.hours.maximum, 24);
-      assert.equal(tool.inputSchema.properties.hours.exclusiveMinimum, 0);
+for (const mode of ['auto', 'legacy']) {
+  test(`SDK ${mode} lists exactly three read-only tools with strict optional schemas and mirrored OAuth metadata`, async t => {
+    const { client, listedDescriptors } = await clientFor(t, async () => assert.fail('listing invoked AWS'), { versionNegotiation: { mode } });
+    const { tools } = await client.listTools();
+    assert.deepEqual(tools.map(tool => tool.name), TOOLS.map(tool => tool.name));
+    for (const tool of tools) {
+      assert.equal(tool.inputSchema.additionalProperties, false);
+      assert.equal(tool.inputSchema.type, 'object');
+      assert.equal(tool.inputSchema.properties.room.maxLength, 20);
+      assert.equal(tool.inputSchema.properties.room.pattern, '^[WE]\\d+[NS]\\d+$');
+      assert.deepEqual(tool.inputSchema.required ?? [], []);
+      assert.deepEqual(tool.annotations, { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
+      // The pinned SDK client strips unknown extensions when parsing Tool objects.
+      // Assert the actual descriptor on the wire, as consumed by OpenAI clients.
+      const descriptor = listedDescriptors.find(descriptor => descriptor.name === tool.name);
+      assert.deepEqual(descriptor.securitySchemes, [{ type: 'oauth2', scopes: ['telemetry:read'] }]);
+      assert.deepEqual(descriptor._meta.securitySchemes, descriptor.securitySchemes);
+      assert.deepEqual(Object.keys(tool.inputSchema.properties), tool.name === 'screeps_latest' ? ['room'] : ['room', 'hours']);
+      if (tool.name !== 'screeps_latest') {
+        assert.equal(tool.inputSchema.properties.hours.maximum, 24);
+        assert.equal(tool.inputSchema.properties.hours.exclusiveMinimum, 0);
+      }
     }
-  }
-});
+  });
+}
 for (const tool of TOOLS) {
   test(`${tool.name} injects configured shard and maps exact action through SDK`, async t => {
     const seen = [];
