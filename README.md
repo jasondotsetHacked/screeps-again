@@ -2,6 +2,26 @@
 
 An autonomous Screeps: World codebase focused on world intelligence, planning, forecasting, self-recovery, and unattended colony growth.
 
+## Long-term vision
+
+The long-term goal is to build a fully autonomous Screeps empire capable of
+operating dozens of rooms, expanding, trading, conducting industry, fighting
+serious wars, recovering from losses, and improving its decisions from measured
+results without requiring routine human control.
+
+The architecture is intentionally growing around explicit observations,
+persistent world intelligence, strategic designations, durable operations,
+resource requests, bounded planners, and recoverable execution rather than
+creep-side strategy or large stateful scripts.
+
+Optional external AI supervision may eventually review the empire through
+authenticated MCP interfaces, analyze long-term trends, and issue narrow
+high-level strategic directives. The in-game bot must remain independently
+autonomous and survivable if every external service disappears.
+
+See [docs/vision.md](docs/vision.md) for the architectural north star and the
+principles intended to guide future development.
+
 ## V1 goals
 
 - Play on the official persistent Screeps World.
@@ -118,6 +138,9 @@ Once Spawn1 exists, the runtime:
 - forecasts replacement lead time from spawn time + travel + safety buffer;
 - keeps a target generalist-worker population;
 - assigns workers across sources;
+- transitions viable local sources to dedicated stationary-miner and source-bound-hauler operations while retaining generalist fallback;
+- batches hauler loads and gives healthy source buffers soft hauler-first ownership without blocking recovery;
+- plans a controller working buffer and reserves an RCL4 storage/core footprint for downstream logistics;
 - reuses container, tombstone, ruin, and dropped energy through a shared acquisition planner;
 - schedules refill, construction, repair, and controller labor centrally;
 - chooses nearby worker–target pairs within each urgency tier;
@@ -143,7 +166,7 @@ query Lambda. Use `npm run aws:ops -- latest`, `npm run aws:ops -- history --hou
 or `npm run aws:ops -- diagnose --room E25S47 --hours 6` after deploying the query
 layer. The helper discovers the function from the CloudFormation stack output.
 
-Workers remain generalists. Dedicated miners/haulers, remote mining, advanced base planning, market logic, combat doctrine, and the deeper forecaster are future work. See [the colony labor architecture](docs/colony-labor.md) for the runtime pipeline, budgets, and transitional systems.
+Workers remain generalists for refill/build/repair/upgrade work and recovery fallback, while viable local sources can transition to dedicated miner -> container -> hauler operations. Phase 3.1 adds batched hauling, soft source-buffer ownership, a controller working reserve, and an RCL4 storage/core transition. Remote mining, cross-room travel, advanced base planning, market logic, combat doctrine, and the deeper forecaster remain future work. See [local logistics refinement](docs/local-logistics-refinement.md), [the colony labor architecture](docs/colony-labor.md), and [the long-term vision](docs/vision.md).
 
 ## Public-repo security
 
