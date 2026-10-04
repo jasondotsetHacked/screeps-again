@@ -1,4 +1,4 @@
-import { identityConflicts, readCreepIdentity, samePopulation, type CreepIdentity } from '../creeps/identity';
+import { identityConflicts, readNamedCreepIdentity, samePopulation, type CreepIdentity } from '../creeps/identity';
 
 export interface PopulationCreep {
   name: string;
@@ -29,11 +29,11 @@ export function countPopulation(input: {
 }): PopulationCount {
   const byName = new Map(input.creeps.map((creep) => [creep.name, creep]));
   const identities = new Map(input.creeps.map((creep) =>
-    [creep.name, readCreepIdentity(creep.memory)]));
+    [creep.name, readNamedCreepIdentity(creep.name, creep.memory)]));
   const spawningNames = new Set<string>();
   for (const creep of input.spawning) {
     spawningNames.add(creep.name);
-    const identity = readCreepIdentity(creep.memory);
+    const identity = readNamedCreepIdentity(creep.name, creep.memory);
     if (!identities.get(creep.name) && identity &&
         !identityConflicts(byName.get(creep.name)?.memory, identity)) {
       identities.set(creep.name, identity);

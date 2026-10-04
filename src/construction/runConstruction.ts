@@ -1,3 +1,6 @@
+import { chooseSourceTiles } from '../operations/observeSources';
+import type { SourceOperation } from '../operations/sourceOperation';
+
 const PLAN_INTERVAL = 25;
 const ROAD_INTERVAL = 100;
 const MAX_NEW_SITES_PER_PLAN = 4;
@@ -83,39 +86,28 @@ function placeStructureSites(
   return placed;
 }
 
-function ensureSourceContainers(
+export function ensureSourceContainers(
   room: Room,
   spawn: StructureSpawn,
-  maxNew: number
+  maxNew: number,
+  operations?: readonly SourceOperation[]
 ): number {
   if ((room.controller?.level ?? 0) < 2) return 0;
 
   let placed = 0;
-
-  for (const source of room.find(FIND_SOURCES)) {
+  const sources = room.find(FIND_SOURCES);
+  const structures = room.find(FIND_STRUCTURES);
+  const sites = room.find(FIND_MY_CONSTRUCTION_SITES);
+  const tiles = operations ? new Map(operations.map((o) => [o.source.id, o.tile]))
+    : chooseSourceTiles(room, sources, structures, sites, spawn.pos);
+  for (const source of [...sources].sort((a, b) => a.id.localeCompare(b.id))) {
     if (placed >= maxNew) break;
 
-    const hasContainer = source.pos.findInRange(FIND_STRUCTURES, 1, {
-      filter: (structure) => structure.structureType === STRUCTURE_CONTAINER
-    }).length > 0;
-
-    const hasContainerSite = source.pos.findInRange(
-      FIND_MY_CONSTRUCTION_SITES,
-      1,
-      {
-        filter: (site) => site.structureType === STRUCTURE_CONTAINER
-      }
-    ).length > 0;
-
-    if (hasContainer || hasContainerSite) continue;
-
-    const path = source.pos.findPathTo(spawn.pos, {
-      ignoreCreeps: true,
-      maxRooms: 1
-    });
-
-    const first = path[0];
-    if (!first || !buildable(room, first.x, first.y)) continue;
+    const first = tiles.get(source.id);
+    // Even unusable adjacent buffers/sites prevent duplicate construction.
+    if ([...structures, ...sites].some((s) => s.structureType === STRUCTURE_CONTAINER &&
+      Math.max(Math.abs(s.pos.x - source.pos.x), Math.abs(s.pos.y - source.pos.y)) <= 1)) continue;
+    if (!first?.placeable || !first.walkable) continue;
 
     if (
       room.createConstructionSite(
@@ -158,7 +150,7 @@ function placeRoadsOnPath(
   return placed;
 }
 
-export function runConstruction(room: Room): void {
+export function runConstruction(room: Room, operations?: readonly SourceOperation[]): void {
   const controller = room.controller;
   if (!controller?.my) return;
 
@@ -212,7 +204,7 @@ export function runConstruction(room: Room): void {
     }
 
     if (remaining > 0) {
-      remaining -= ensureSourceContainers(room, spawn, remaining);
+      remaining -= ensureSourceContainers(room, spawn, remaining, operations);
     }
   }
 

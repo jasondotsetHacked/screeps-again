@@ -1,5 +1,5 @@
 import { buildWorkerBody, replacementLeadTicks } from '../spawning/workerBody';
-import { readCreepIdentity, samePopulation } from '../creeps/identity';
+import { readNamedCreepIdentity, samePopulation } from '../creeps/identity';
 import { planWorkerPopulation, workerTarget, type WorkerPopulation } from '../spawning/workerPlan';
 import type { WorkTarget, WorkPosition } from '../work/demands';
 import type { EnergySupply } from './planEnergy';
@@ -73,7 +73,7 @@ export function observeColony(room: Room): ColonyState {
     s.structureType === STRUCTURE_TOWER && (s as StructureTower).my);
   const gameCreeps = Object.values(Game.creeps);
   const workerCreeps = gameCreeps.filter((creep) => {
-    const identity = readCreepIdentity(creep.memory);
+    const identity = readNamedCreepIdentity(creep.name, creep.memory);
     return identity !== null && samePopulation(identity, { home: room.name, kind: 'worker' });
   });
   const plannedBody = buildWorkerBody(room.energyCapacityAvailable);

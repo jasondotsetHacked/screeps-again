@@ -43,12 +43,13 @@ export function simulation(options: Parameters<typeof fixture>[0] = {}) {
     setEnergy(to, amount(to) + taken);
     if (taken > 0) fulfilled[kind] += 1;
   }
-  for (const creep of f.workers) {
+  function attachCreep(creep: Creep, initialEnergy = options.energy) {
     const capacity = creep.getActiveBodyparts(CARRY) * 50;
-    store(creep, options.energy ?? capacity, capacity);
-    creep.moveTo = ((target: RoomObject) => {
-      intents.push(() => { creep.pos = position(creep.pos.x + Math.sign(target.pos.x - creep.pos.x),
-        creep.pos.y + Math.sign(target.pos.y - creep.pos.y)); });
+    store(creep, initialEnergy ?? capacity, capacity);
+    creep.moveTo = ((target: RoomObject | RoomPosition) => {
+      const pos = 'pos' in target ? target.pos : target;
+      intents.push(() => { creep.pos = position(creep.pos.x + Math.sign(pos.x - creep.pos.x),
+        creep.pos.y + Math.sign(pos.y - creep.pos.y)); });
       return OK;
     }) as Creep['moveTo'];
     creep.harvest = ((source: Source) => {
@@ -71,8 +72,8 @@ export function simulation(options: Parameters<typeof fixture>[0] = {}) {
       setEnergy(creep, amount(creep) + taken);
       if (taken > 0) fulfilled.pickup += 1;
     })) as Creep['pickup'];
-    creep.transfer = ((target: StructureSpawn) => amount(creep) <= 0 ? ERR_NOT_ENOUGH_ENERGY
-      : action(creep, target, 1, () => take(creep, target, Infinity, 'refill'))) as Creep['transfer'];
+    creep.transfer = ((target: StructureSpawn, _resource: string, requested?: number) => amount(creep) <= 0 ? ERR_NOT_ENOUGH_ENERGY
+      : action(creep, target, 1, () => take(creep, target, requested ?? Infinity, 'refill'))) as Creep['transfer'];
     creep.build = ((site: ConstructionSite) => amount(creep) <= 0 ? ERR_NOT_ENOUGH_ENERGY
       : action(creep, site, 3, () => {
         const spent = consume(creep, Math.ceil((site.progressTotal - site.progress) / BUILD_POWER));
@@ -93,6 +94,7 @@ export function simulation(options: Parameters<typeof fixture>[0] = {}) {
         if (spent > 0) { fulfilled.upgrade += 1; upgraded = true; }
       })) as Creep['upgradeController'];
   }
+  for (const creep of f.workers) attachCreep(creep);
   Object.assign(f.controller, { progress: 0, progressTotal: 45000 });
   // Avoid the periodic site planner in these labor tests. It is covered by the
   // unchanged integration path; no spawn means construction mutation is inert.
@@ -116,5 +118,5 @@ export function simulation(options: Parameters<typeof fixture>[0] = {}) {
     Game.time += 1;
     return colony;
   }
-  return { ...f, tick, store, amount, setEnergy, fulfilled, regenerated: () => regenerated };
+  return { ...f, tick, store, amount, setEnergy, attachCreep, fulfilled, regenerated: () => regenerated };
 }
