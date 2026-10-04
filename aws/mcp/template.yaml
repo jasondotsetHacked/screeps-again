@@ -1,0 +1,133 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Private READ ONLY Screeps MCP boundary. Invoke the existing telemetry query Lambda only.
+
+Parameters:
+  TelemetryQueryFunctionArn:
+    Type: String
+    AllowedPattern: 'arn:aws:lambda:us-east-1:[0-9]{12}:function:[A-Za-z0-9_-]+'
+    Description: Exact existing query Lambda ARN supplied by the operator, never discovered at runtime.
+  ScreepsShard:
+    Type: String
+    Default: shard3
+    AllowedPattern: 'shard(0|[1-9][0-9]{0,2}|X)'
+  OAuthIssuer:
+    Type: String
+    AllowedPattern: 'https://[a-zA-Z0-9.-]+/'
+    Description: Exact Auth0 issuer with trailing slash; no secrets.
+  AllowedSubjectHashes:
+    Type: String
+    NoEcho: true
+    AllowedPattern: '[a-f0-9]{64}(,[a-f0-9]{64})*'
+    Description: Comma-separated SHA256 hashes of intended Auth0 subjects. No default; fail closed.
+  AllowedOrigins:
+    Type: String
+    Default: https://chatgpt.com
+    Description: Exact comma-separated HTTPS browser origins. Requests without Origin are accepted.
+
+Resources:
+  McpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub ${AWS::StackName}-mcp
+      ProtocolType: HTTP
+  McpStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref McpApi
+      StageName: $default
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 5
+        ThrottlingRateLimit: 2
+  McpIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref McpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt McpFunction.Arn
+      PayloadFormatVersion: '2.0'
+      TimeoutInMillis: 25000
+  McpRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref McpApi
+      RouteKey: ANY /mcp
+      Target: !Sub integrations/${McpIntegration}
+  MetadataRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref McpApi
+      RouteKey: GET /.well-known/oauth-protected-resource/mcp
+      Target: !Sub integrations/${McpIntegration}
+  McpInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref McpFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${McpApi}/$default/*/mcp
+  MetadataInvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      Action: lambda:InvokeFunction
+      FunctionName: !Ref McpFunction
+      Principal: apigateway.amazonaws.com
+      SourceAccount: !Ref AWS::AccountId
+      SourceArn: !Sub arn:${AWS::Partition}:execute-api:${AWS::Region}:${AWS::AccountId}:${McpApi}/$default/GET/.well-known/oauth-protected-resource/mcp
+  McpLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-gateway
+      RetentionInDays: 7
+  McpRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: InvokeQueryAndWriteOwnLogsOnly
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action: lambda:InvokeFunction
+                Resource: !Ref TelemetryQueryFunctionArn
+              - Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !GetAtt McpLogGroup.Arn
+  McpFunction:
+    Type: AWS::Serverless::Function
+    DependsOn: McpLogGroup
+    Properties:
+      FunctionName: !Sub ${AWS::StackName}-gateway
+      CodeUri: server/
+      Handler: index.handler
+      Runtime: nodejs22.x
+      Architectures: [arm64]
+      MemorySize: 128
+      Timeout: 25
+      ReservedConcurrentExecutions: 2
+      Role: !GetAtt McpRole.Arn
+      Environment:
+        Variables:
+          QUERY_FUNCTION_ARN: !Ref TelemetryQueryFunctionArn
+          SCREEPS_SHARD: !Ref ScreepsShard
+          OAUTH_ISSUER: !Ref OAuthIssuer
+          ALLOWED_SUBJECT_HASHES: !Ref AllowedSubjectHashes
+          ALLOWED_ORIGINS: !Ref AllowedOrigins
+          MCP_RESOURCE_URL: !Sub https://${McpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mcp
+
+Outputs:
+  McpEndpoint:
+    Value: !Sub https://${McpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/mcp
+  ProtectedResourceMetadata:
+    Value: !Sub https://${McpApi}.execute-api.${AWS::Region}.${AWS::URLSuffix}/.well-known/oauth-protected-resource/mcp
