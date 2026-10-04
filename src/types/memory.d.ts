@@ -1,3 +1,5 @@
+import type { CreepIdentity } from '../creeps/identity';
+
 declare global {
   interface Memory {
     meta?: {
@@ -118,9 +120,7 @@ declare global {
     sourceId: string | null;
   }
 
-  interface CreepMemory {
-    kind?: 'worker';
-    home?: string;
+  interface CreepMemory extends Partial<CreepIdentity> {
     sourceId?: Id<Source>;
     working?: boolean;
     born?: number;

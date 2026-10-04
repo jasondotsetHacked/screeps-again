@@ -1,21 +1,6 @@
 import { bodyCost, buildWorkerBody } from './workerBody';
-
-interface WorkerIdentity {
-  kind?: string;
-  home?: string;
-}
-
-interface ExistingWorker {
-  name: string;
-  memory: WorkerIdentity;
-  spawning: boolean;
-  ticksToLive?: number;
-}
-
-interface SpawningWorker {
-  name: string;
-  memory?: WorkerIdentity;
-}
+import { countPopulation, type PopulationCreep, type SpawningCreep } from './population';
+import type { PopulationRequest } from './spawnPlan';
 
 export interface WorkerPopulation {
   // Live includes aging workers; spawning is a separate, disjoint count.
@@ -34,50 +19,20 @@ export function workerTarget(sourceCount: number, capacity: number): number {
 
 export function planWorkerPopulation(input: {
   roomName: string;
-  workers: readonly ExistingWorker[];
-  spawning: readonly SpawningWorker[];
+  workers: readonly PopulationCreep[];
+  spawning: readonly SpawningCreep[];
   replacementLead: number;
   target: number;
 }): WorkerPopulation {
-  const belongs = (memory: WorkerIdentity | undefined): boolean =>
-    memory?.kind === 'worker' && memory.home === input.roomName;
-  const existingByName = new Map(
-    input.workers
-      .filter((worker) => belongs(worker.memory))
-      .map((worker) => [worker.name, worker])
-  );
-  const spawningNames = new Set(
-    input.spawning
-      .filter((worker) => belongs(worker.memory))
-      .map((worker) => worker.name)
-  );
-  const spawnRepresentations = new Set(input.spawning.map((worker) => worker.name));
-
-  // Either representation can establish that a known worker is spawning.
-  for (const worker of existingByName.values()) {
-    if (worker.spawning || spawnRepresentations.has(worker.name)) {
-      spawningNames.add(worker.name);
-    }
-  }
-
-  let liveWorkers = 0;
-  let agingWorkers = 0;
-  for (const worker of existingByName.values()) {
-    if (spawningNames.has(worker.name)) continue;
-    liveWorkers += 1;
-    if (
-      worker.ticksToLive !== undefined &&
-      worker.ticksToLive <= input.replacementLead
-    ) {
-      agingWorkers += 1;
-    }
-  }
-
+  const count = countPopulation({
+    identity: { kind: 'worker', home: input.roomName },
+    creeps: input.workers, spawning: input.spawning, replacementLead: input.replacementLead
+  });
   return {
-    liveWorkers,
-    spawningWorkers: spawningNames.size,
-    agingWorkers,
-    effectiveWorkers: liveWorkers - agingWorkers + spawningNames.size,
+    liveWorkers: count.live,
+    spawningWorkers: count.spawning,
+    agingWorkers: count.aging,
+    effectiveWorkers: count.effective,
     target: input.target
   };
 }
@@ -87,6 +42,34 @@ export interface WorkerSpawnPlan {
   body: BodyPartConstant[];
   energyBudget: number;
   cost: number;
+}
+
+export function requestWorkerPopulation(input: {
+  home: string;
+  population: WorkerPopulation;
+  replacementLead: number;
+  energyAvailable: number;
+  energyCapacity: number;
+}): PopulationRequest | null {
+  const { population, home } = input;
+  // Keep unmet intent visible to arbitration even while waiting for energy.
+  // Recovery uses the affordable body when possible; otherwise reserve the
+  // preferred body until the next tick reobserves energy and recomputes requests.
+  const plan = planWorkerSpawn(population, input.energyAvailable, input.energyCapacity)
+    ?? planWorkerSpawn(population, input.energyCapacity, input.energyCapacity);
+  if (!plan) return null;
+  return {
+    id: `workers:${home}`,
+    identity: { kind: 'worker', home },
+    priority: plan.reason === 'bootstrap' ? 'bootstrap'
+      : plan.reason === 'critical-depletion' ? 'recovery' : 'normal',
+    body: plan.body,
+    initialMemory: { working: false },
+    reason: plan.reason,
+    explanation: plan.reason !== 'normal'
+      ? `[spawn] ${home} recovery=${plan.reason}; effective=${population.effectiveWorkers}/${population.target}; body=${plan.body.join(',')}; budget=${plan.energyBudget}; cost=${plan.cost}`
+      : `[spawn] ${home} worker ${population.effectiveWorkers + 1}/${population.target}; replacement lead=${input.replacementLead} ticks`
+  };
 }
 
 export function planWorkerSpawn(

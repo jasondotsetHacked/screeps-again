@@ -1,7 +1,10 @@
 # World intelligence and empire evolution
 
-This foundation was based on main at `f5013bd`. It adds observation persistence,
+Stage 1 was based on main at `f5013bd`. It added observation persistence,
 without changing colony work, spawning, safety policy, or creep execution.
+Stage 2 below builds on current main at `fdd8873` and separates population
+requests, identity, arbitration, and spawn execution while retaining workers as
+the only active population.
 
 ## Ownership boundaries
 
@@ -174,8 +177,8 @@ must choose coarse sanitized summaries explicitly.
 
 | Stage | Scope and coherent runtime boundary | Dependencies | Tests |
 | --- | --- | --- | --- |
-| 1. Persistent room intel | This PR. Observe existing vision; no strategic consumers. | Current main | Projection, age boundaries, missing/old/future data, reset recovery, scan reuse, failure isolation, ops exclusion. |
-| 2. Population requests and identity | Add pure spawn-demand arbitration and a runtime adapter. Workers remain the only active population initially. Define home/kind and optional operation identity; preserve recovery priority and count live/spawning/replacement bodies exactly once. | 1 for sequence; mechanically independent | Existing bootstrap/depletion/replacement behavior, deterministic priority, affordability, spawning identity cleanup, old worker metadata and orphan recovery. |
+| 1. Persistent room intel | Complete. Observe existing vision; no strategic consumers. | Original main | Projection, age boundaries, missing/old/future data, reset recovery, scan reuse, failure isolation, ops exclusion. |
+| 2. Population requests and identity | Current slice. Pure population accounting and spawn-request arbitration plus a runtime adapter. Workers are the only producer/executor. Define home/kind and optional operation identity; preserve recovery priority and count live/spawning/replacement bodies exactly once. | 1 for sequence; mechanically independent | Existing bootstrap/depletion/replacement behavior, deterministic priority, affordability, spawning identity cleanup, old worker metadata and orphan recovery. |
 | 3. Local source operations and logistics | Pilot local source assignments with miner and hauler needs, expected income and measured/estimated hauling need. Enable only with a usable mining tile/buffer and affordable support; retain generalists during bootstrap or logistics loss. Coordinate container placement with the chosen mining position. | 2 | Source assignment uniqueness, buffer readiness, miner replacement, hauling cycles, shared supply contention, miner/hauler loss, total population wipe and low-energy fallback. |
 | 4. Cross-room travel | Add an execution helper with destination room/position, range, deliberate borders, invalid-destination handling, and basic stuck/repath recovery. Keep local workers on their existing movement behavior initially. | 2 for identity | Entry/exit transitions, border destinations, arrival, invalid destinations, lost vision, blocked steps, reset of travel state. Mocked intents are not live travel tests. |
 | 5. Scouting | Pure bounded scouting needs from missing/stale intel, colony-supported spawn requests, and scout assignments using travel. Scouts collect vision; the world adapter still owns fact projection. Use conservative refresh and population limits. | 1, 2, 4 | Missing/stale target selection, bounded scope, deterministic assignment, death/replacement, unaffordable requests, denied/closed destinations, successful intel refresh. |
@@ -191,13 +194,15 @@ Stage 6 can be reviewed while keeping all economic activation disabled.
 
 ## Existing architecture that needs later changes
 
-- **Spawning:** `runSpawning` currently selects one available spawn and calls a
-  worker-only planner. Generalize requests above that adapter before adding roles;
-  keep the 200-energy bootstrap and depletion priorities. Future replacement lead
+- **Spawning:** Stage 2 makes `runSpawning` an adapter for an arbitrated population
+  request and retains one available spawn attempt per colony per tick. Add future
+  producers above arbitration and keep home recovery priorities. Future replacement lead
   time needs destination travel estimates rather than the fixed worker allowance.
-- **Identity/recovery:** `CreepMemory.kind` only permits workers; recovery recognizes
-  `worker-<home>-...` names. New kinds need durable home/operation identity and a
-  recovery naming contract. Physical room must not become population ownership.
+- **Identity/recovery:** Stage 2 centralizes durable kind/home/optional operation
+  identity; the kind union still permits only workers. Recovery recognizes the
+  deployed `worker-<home>-<base36 suffix>` contract and respects valid Memory.
+  New kinds need explicit recovery contracts, especially for lost operation
+  identity. Physical room must not become population ownership.
 - **Dispatch:** the kernel runs only owned colonies, and colonies execute only
   worker creeps. Scouts and remote specialists need explicit assignment execution
   outside the local worker scheduler, exactly once even while away from home.
@@ -222,7 +227,7 @@ coordination, map-wide data collection, and advanced economic forecasting remain
 later work beyond this sequence. Multi-colony support is a prerequisite for an
 explicit future expansion operation, not permission to claim rooms automatically.
 
-## Validation of this foundation
+## Stage 1 validation (historical)
 
 Main's baseline: 107 passing tests and a 51,180-byte unminified bundle.
 Foundation: 127 passing tests (20 added) and a 55,430-byte bundle: +4,250 bytes,
@@ -234,3 +239,134 @@ existing suite. No live CPU/Memory profiling, actual scouting, or live-world
 behavior has been tested. No deployment, reboot, spawn placement, or merge was
 performed. Suggested next PR: stage 2, preserving worker behavior while making
 population identity and spawn arbitration ready for local source operations.
+
+## Stage 2: population requests and creep identity
+
+The useful boundary is generic population/spawn infrastructure alongside existing
+worker-specific labor. `WorkDemand` still describes refill/build/repair/upgrade
+labor; it is not a population or operation abstraction. `main.ts`, the worker
+scheduler, `runWorker`, movement, safety, construction policy, world intel, and
+ops telemetry formats are unchanged.
+
+```text
+observeColony -> worker population projection
+             -> requestWorkerPopulation -> PopulationRequest[]
+             -> planSpawn (home capacity / pure arbitration)
+             -> SpawnPlan -> runSpawning -> spawnCreep
+
+observeColony -> planWork -> WorkDemand[] -> scheduleWorkers -> execution
+```
+
+`src/spawning/population.ts` counts a selected durable identity scope across live
+and spawning representations. A name denotes one body. Live excludes spawning;
+aging is a subset of live; effective is live minus aging plus spawning. TTL equal
+to replacement lead counts as aging; undefined TTL retains the prior behavior.
+Valid live identity wins over conflicting spawn metadata. Missing live identity
+can use spawn metadata only without a conflicting partial kind/home/operation.
+Unknown names are not interpreted by accounting: recovery happens first.
+Colony observation supplies all Game identities, even foreign ones, so filtering
+the local labor pool cannot hide conflicting ownership from accounting.
+
+### Request and arbitration contract
+
+`PopulationRequest` describes **one needed body**, not a persistent queue or a
+target population. It contains a unique home-scoped `id`, durable `identity`,
+priority (`bootstrap`, `recovery`, `normal`), concrete body, initial execution
+Memory, reason, and a diagnostic explanation. Initial execution Memory excludes
+identity and birth fields; the adapter supplies those centrally. Producers decide
+population targets, bodies, replacement lead, and initial state. Only
+`requestWorkerPopulation` produces requests today, using the existing worker
+policy. An unmet need remains visible even when currently unaffordable.
+
+`planSpawn` accepts home, requests, available energy, and capacity. It filters
+other homes, orders bootstrap before recovery before normal, and uses lexical
+request ID ties independent of input order. It computes actual body cost and
+rejects empty, over-50-part, or unaffordable plans. An unaffordable highest-priority
+request reserves its place; lower priorities and later peer IDs wait. This
+conservative policy protects recovery and preferred-body waiting. It can starve
+lower-priority requests; future producers must bound needs and select priorities
+deliberately. Inputs and requests are not mutated.
+
+`runColony` composes the producer and arbitrator. `runSpawning` receives only the
+resulting plan and the home colony's observed spawn capacity. It tries the first
+idle spawn once, creates Memory/name, calls `spawnCreep`, returns the attempted
+name/request ID/result, and logs the producer's explanation only on success.
+No worker targets, bodies, execution initialization, or role dispatch live in
+the adapter. Future operations supply requests to the home colony; they must
+not call spawning directly. There is no empire planner or spawn queue.
+
+### Identity, compatibility, and recovery
+
+`src/creeps/identity.ts` owns `{ kind, home, operationId? }`. `home` is durable
+population ownership, independent of physical room. `operationId`, when supplied,
+identifies a separate population scope; absent operation identity is the ordinary
+worker pool. No ordinary worker writes it. `CreepKind` deliberately remains
+`'worker'`; introducing another kind requires its producer and executor in a later
+slice, rather than advertising roles that do not exist yet.
+
+`CreepMemory` extends the optional identity fields and retains `working`, `born`,
+and `sourceId` in their deployed flat layout. Memory schema v1 is unchanged; no
+manual migration or new strategic namespace is required. Valid worker Memory
+is authoritative even if its name disagrees. Existing worker names stay
+`worker-<home>-<tick in base36>`. Missing or malformed bot-named identity can
+recover; conflicting nonempty kind/home fields and malformed operation intent
+are left untouched. Unrelated names and foreign homes are not adopted.
+
+Live recovery preserves unrelated fields and prior birth tick and initializes
+`working` from carried energy as before. Spawn-only orphan recovery restores
+identity before observation and initializes `working: false`. Cleanup retains
+live and spawning creep entries and removes dead entries only. Duplicate spawn
+representations do not duplicate bodies or recovery logs. Workers away from home
+still count toward home population; only local workers enter local labor.
+
+Recovery names cannot reconstruct a lost operation ID. Future operation populations
+need their own recovery/assignment contract before activation. The current single
+attempt per home/tick keeps the existing naming suffix safe within this path;
+parallel spawn servicing would need distinct suffixes and tick-local capacity
+reservations. No such multi-spawn throughput change is included here.
+
+### Worker behavior and validation
+
+Worker targets and body construction remain unchanged. The existing worker spawn
+decision function is unchanged: 200-energy emergency bootstrap, critical threshold
+`max(1, floor(target / 3))`, preferred normal body when affordable, full-body waiting
+when healthy, and aging replacement lead from spawn time plus the existing travel
+and safety allowance. Spawn-only workers count, live/spawn overlap counts once,
+and total workforce loss recovers through the new pipeline.
+
+Baseline measured on `fdd8873`: 181 repository tests plus 73 MCP tests, all passing.
+Stage 2: 211 repository tests plus the same 73 MCP tests, all passing (**30 added**;
+254 -> 284 combined). Failures, cancellations, skips, and todos are zero in both
+runs. Added coverage includes 3,360 worker-policy comparison cases in one test,
+pure arbitration, affordability/priority waiting, operation scopes, home ownership,
+adapter initial Memory, metadata conflicts, orphan/spawn recovery, dead cleanup,
+duplicate representations, total wipe, and preferred replacement waiting.
+
+`npm run check` passes typecheck, repository tests, MCP tests, and bot build.
+`npm run aws:validate` and `npm run mcp:validate` pass SAM lint validation without
+AWS/MCP changes. `git diff --check` passes. Unminified `dist/main.js` changes from
+**55,430 to 59,155 bytes**, **+3,725 bytes (+6.720188%)**.
+
+Population counting uses tick-local maps/sets in O(C + S) time and space per home
+for supplied live and spawning representations. Arbitration sorts R requests in
+O(R log R); today R is at most one. Identity projections, requests, plans, and
+attempt results are recomputed and never persisted. Normal worker Memory gains
+no serialized fields. Recovery retains the existing per-home creep scan and adds
+a scan of current spawns. No extra room finds or in-game pathfinding are added.
+These are structural estimates, not live CPU benchmarks; validation uses pure
+functions and mocked runtime fixtures. No live-world test or deployment was run.
+
+### Deferred behavior and Stage 3
+
+This slice adds no miners, haulers, scouts, reservers, defenders, claimers, remote
+workers, source/remote operations, room assessment/scoring/designation, travel,
+routing, expansion, reservation logic, new strategic Memory, or generalized empire
+planner. AWS/MCP infrastructure and deployment paths are unchanged.
+
+Suggested Stage 3 remains **Local source operations and logistics**: a bounded
+stationary-miner and hauling pilot with usable mining tiles/buffers, coordinated
+containers, affordable support, replacement and logistics-loss recovery, and
+generalists retained for bootstrap. Source operations should request home capacity
+through this boundary and use their own assignments/executors. Carry-only hauling
+must not be routed through the WORK + CARRY worker scheduler. No Stage 3 behavior
+is activated here.
