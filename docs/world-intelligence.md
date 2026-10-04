@@ -278,10 +278,18 @@ population targets, bodies, replacement lead, and initial state. Only
 `requestWorkerPopulation` produces requests today, using the existing worker
 policy. An unmet need remains visible even when currently unaffordable.
 
-`planSpawn` accepts home, requests, available energy, and capacity. It filters
-other homes, orders bootstrap before recovery before normal, and uses lexical
-request ID ties independent of input order. It computes actual body cost and
-rejects empty, over-50-part, or unaffordable plans. An unaffordable highest-priority
+`planSpawn` accepts home, requests, available energy, and capacity. Before selecting
+a winner it rejects malformed request fields, empty/over-50-part/sparse bodies,
+unknown body parts, and nonfinite/nonpositive part or total costs. Initial execution
+Memory must be an object without identity/birth fields. It then filters other homes
+and rejects **every** structurally valid local request sharing an ID, even identical
+duplicates or requests with different operation identities. Malformed and foreign
+requests do not invalidate a valid local ID. Uniqueness is enforced independently
+of input order; callers cannot decide a collision winner through ordering.
+
+Remaining requests order bootstrap before recovery before normal and use lexical
+request ID ties independent of input order. Affordability is checked only after
+winner selection. A valid unaffordable highest-priority
 request reserves its place; lower priorities and later peer IDs wait. This
 conservative policy protects recovery and preferred-body waiting. It can starve
 lower-priority requests; future producers must bound needs and select priorities
@@ -335,21 +343,27 @@ and safety allowance. Spawn-only workers count, live/spawn overlap counts once,
 and total workforce loss recovers through the new pipeline.
 
 Baseline measured on `fdd8873`: 181 repository tests plus 73 MCP tests, all passing.
-Stage 2: 211 repository tests plus the same 73 MCP tests, all passing (**30 added**;
-254 -> 284 combined). Failures, cancellations, skips, and todos are zero in both
+Stage 2: 218 repository tests plus the same 73 MCP tests, all passing (**37 added**;
+254 -> 291 combined). Failures, cancellations, skips, and todos are zero in both
 runs. Added coverage includes 3,360 worker-policy comparison cases in one test,
 pure arbitration, affordability/priority waiting, operation scopes, home ownership,
 adapter initial Memory, metadata conflicts, orphan/spawn recovery, dead cleanup,
 duplicate representations, total wipe, and preferred replacement waiting.
+The arbitration robustness review adds seven focused tests beyond the original
+211-test draft: malformed requests cannot block valid peers, valid unaffordable
+winners still wait, and duplicate IDs are rejected deterministically within home.
 
 `npm run check` passes typecheck, repository tests, MCP tests, and bot build.
 `npm run aws:validate` and `npm run mcp:validate` pass SAM lint validation without
 AWS/MCP changes. `git diff --check` passes. Unminified `dist/main.js` changes from
-**55,430 to 59,155 bytes**, **+3,725 bytes (+6.720188%)**.
+**55,430 to 60,422 bytes**, **+4,992 bytes (+9.005953%)**. The robustness follow-up
+changes the original draft's 59,155-byte bundle by **+1,267 bytes (+2.141831%)**.
 
 Population counting uses tick-local maps/sets in O(C + S) time and space per home
-for supplied live and spawning representations. Arbitration sorts R requests in
-O(R log R); today R is at most one. Identity projections, requests, plans, and
+for supplied live and spawning representations. Arbitration validates body parts,
+counts local IDs in a tick-local map, and sorts the remaining R requests in
+O(B + R log R), where B is total inspected parts (at most 50 per request), with
+O(R) extra space; today R is at most one. Identity projections, requests, plans, and
 attempt results are recomputed and never persisted. Normal worker Memory gains
 no serialized fields. Recovery retains the existing per-home creep scan and adds
 a scan of current spawns. No extra room finds or in-game pathfinding are added.
