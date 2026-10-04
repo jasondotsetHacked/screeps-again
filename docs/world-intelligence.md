@@ -1,5 +1,10 @@
 # World intelligence and empire evolution
 
+Stage 3 adds the bounded owned-room source logistics pilot documented in
+[local-source-logistics.md](local-source-logistics.md). Stage 1/2 sections below
+remain historical records; Stage 3 introduces miners/haulers without beginning
+cross-room travel or remote mining.
+
 Stage 1 was based on main at `f5013bd`. It added observation persistence,
 without changing colony work, spawning, safety policy, or creep execution.
 Stage 2 below builds on current main at `fdd8873` and separates population

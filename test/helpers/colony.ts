@@ -1,4 +1,16 @@
 Object.assign(globalThis, {
+  RoomPosition: class {
+    constructor(public x: number, public y: number, public roomName: string) {}
+    findPathTo(target: RoomPosition) {
+      const path: PathStep[] = [];
+      let x = this.x, y = this.y;
+      while (Math.max(Math.abs(x - target.x), Math.abs(y - target.y)) > 1) {
+        x += Math.sign(target.x - x); y += Math.sign(target.y - y);
+        path.push({ x, y, dx: 0, dy: 0, direction: 1 });
+      }
+      return path;
+    }
+  },
   WORK: 'work',
   CARRY: 'carry',
   MOVE: 'move',
@@ -62,6 +74,11 @@ Object.assign(globalThis, {
   },
   BUILD_POWER: 5,
   HARVEST_POWER: 2,
+  ENERGY_REGEN_TIME: 300,
+  SOURCE_ENERGY_CAPACITY: 3000,
+  CARRY_CAPACITY: 50,
+  TERRAIN_MASK_SWAMP: 2,
+  ERR_NOT_ENOUGH_RESOURCES: -6,
   CONTROLLER_DOWNGRADE_SAFEMODE_THRESHOLD: 5000,
   REPAIR_POWER: 100,
   OK: 0,

@@ -36,19 +36,19 @@ export function cleanupDeadCreepMemory(): void {
   }
 }
 
-export function recoverWorkerMemory(room: Room): void {
+export function recoverColonyCreepMemory(room: Room): void {
   for (const creep of Object.values(Game.creeps)) {
     const identity = recoverCreepIdentity(creep.name, creep.memory);
-    if (!identity || identity.kind !== 'worker' || identity.home !== room.name) continue;
+    if (!identity || identity.home !== room.name) continue;
     // A missing/non-object entry recovers locally; unrelated fields survive.
     if (!creep.memory || typeof creep.memory !== 'object') creep.memory = {};
     Object.assign(creep.memory, identity);
-    creep.memory.working =
+    if (identity.kind === 'worker') creep.memory.working =
       creep.store.getUsedCapacity(RESOURCE_ENERGY) > 0;
     creep.memory.born ??= Game.time;
 
     console.log(
-      `[memory] recovered worker metadata for ${creep.name} in ${room.name}`
+      `[memory] recovered ${identity.kind} metadata for ${creep.name} in ${room.name}`
     );
   }
 
@@ -58,12 +58,15 @@ export function recoverWorkerMemory(room: Room): void {
     const name = spawn.spawning?.name;
     if (!name || Game.creeps[name]) continue;
     const identity = recoverCreepIdentity(name, Memory.creeps[name]);
-    if (!identity || identity.kind !== 'worker' || identity.home !== room.name) continue;
+    if (!identity || identity.home !== room.name) continue;
     const memory = Memory.creeps[name];
     Memory.creeps[name] = {
       ...(memory && typeof memory === 'object' ? memory : {}),
-      ...identity, working: false, born: memory?.born ?? Game.time
+      ...identity, ...(identity.kind === 'worker' ? { working: false } : {}), born: memory?.born ?? Game.time
     };
-    console.log(`[memory] recovered spawning worker metadata for ${name} in ${room.name}`);
+    console.log(`[memory] recovered spawning ${identity.kind} metadata for ${name} in ${room.name}`);
   }
 }
+
+// Backward-compatible entry point for existing callers/tests.
+export const recoverWorkerMemory = recoverColonyCreepMemory;

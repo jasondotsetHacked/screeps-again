@@ -5,7 +5,7 @@ import { readCreepIdentity, type CreepIdentity } from '../creeps/identity';
 export interface PopulationRequest {
   id: string;
   identity: CreepIdentity;
-  priority: 'bootstrap' | 'recovery' | 'normal';
+  priority: 'bootstrap' | 'recovery' | 'normal' | 'logistics';
   body: readonly BodyPartConstant[];
   initialMemory: Omit<CreepMemory, keyof CreepIdentity | 'born'>;
   reason: string;
@@ -17,13 +17,14 @@ export interface SpawnPlan {
   cost: number;
 }
 
-const PRIORITY = { bootstrap: 2, recovery: 1, normal: 0 };
+const PRIORITY = { bootstrap: 3, recovery: 2, normal: 1, logistics: 0 };
 
 function validateRequest(request: PopulationRequest): SpawnPlan | null {
   if (!request || typeof request !== 'object' || Array.isArray(request) ||
       typeof request.id !== 'string' || request.id.trim().length === 0 ||
       !readCreepIdentity(request.identity) ||
-      (request.priority !== 'bootstrap' && request.priority !== 'recovery' && request.priority !== 'normal') ||
+      (request.priority !== 'bootstrap' && request.priority !== 'recovery' &&
+        request.priority !== 'normal' && request.priority !== 'logistics') ||
       !Array.isArray(request.body) || request.body.length === 0 || request.body.length > 50 ||
       !request.initialMemory || typeof request.initialMemory !== 'object' || Array.isArray(request.initialMemory) ||
       ['kind', 'home', 'operationId', 'born'].some((field) => field in request.initialMemory) ||

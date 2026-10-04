@@ -2,10 +2,12 @@ import type { ColonyState } from '../colony/colonyState';
 import { selectEnergySupply, type EnergySupply } from '../colony/planEnergy';
 import type { WorkerAssignment } from '../work/assignments';
 import type { WorkerExecution } from '../work/execution';
+import type { RefillConsumer } from '../logistics/planHauling';
 
 export interface WorkerEnergyContext {
   supplies: EnergySupply[];
   sourceWork: Map<string, number>;
+  consumers?: RefillConsumer[];
 }
 
 export function workerEnergyContext(state: ColonyState): WorkerEnergyContext {
@@ -57,21 +59,29 @@ function acquire(creep: Creep, context: WorkerEnergyContext): WorkerExecution {
     const amount = Math.min(freeCapacity, supply.amount);
     result = supply.kind === 'pickup' ? creep.pickup(target as Resource)
       : creep.withdraw(target as StructureContainer | Tombstone | Ruin, RESOURCE_ENERGY, amount);
-    // Tick-local reservations prevent simultaneous acquisition from promising
-    // the same recovered energy repeatedly. Reobserve all supplies next tick.
-    if (result === OK || result === ERR_NOT_IN_RANGE) supply.amount -= amount;
+    // Only accepted resource intents consume this tick's projection. Travel
+    // (successful or failed) leaves energy available to in-range consumers.
+    const execution = outcome(creep, target, result, 'acquire');
+    if (execution.accepted) supply.amount -= amount;
+    return execution;
   }
   return outcome(creep, target, result, 'acquire');
 }
 
-function execute(creep: Creep, assignment: WorkerAssignment): WorkerExecution {
+function execute(creep: Creep, assignment: WorkerAssignment, energy: WorkerEnergyContext): WorkerExecution {
   const target = Game.getObjectById(assignment.targetId as Id<Structure | ConstructionSite>);
   if (!target) return { creepName: creep.name, phase: 'blocked', accepted: false };
   let result: number;
   switch (assignment.kind) {
-    case 'refill':
-      result = creep.transfer(target as StructureSpawn | StructureExtension | StructureTower, RESOURCE_ENERGY);
-      break;
+    case 'refill': {
+      const consumer = energy.consumers?.find((c) => c.id === assignment.targetId);
+      const amount = consumer ? Math.min(consumer.amount, creep.store.getUsedCapacity(RESOURCE_ENERGY)) : undefined;
+      if (amount === 0) return { creepName: creep.name, phase: 'idle', accepted: false };
+      result = creep.transfer(target as StructureSpawn | StructureExtension | StructureTower, RESOURCE_ENERGY, amount);
+      const execution = outcome(creep, target, result, 'work');
+      if (consumer && execution.accepted) consumer.amount -= amount!;
+      return execution;
+    }
     case 'build': result = creep.build(target as ConstructionSite); break;
     case 'repair': result = creep.repair(target as Structure); break;
     case 'upgrade': result = creep.upgradeController(target as StructureController); break;
@@ -89,7 +99,7 @@ export function runWorker(creep: Creep, assignment: WorkerAssignment | undefined
   // Emergency service uses partial loads. Normal work retains fill/use
   // hysteresis; an empty assigned worker visits an energy supply first.
   if (carried > 0 && (creep.memory.working || assignment?.emergency)) {
-    return assignment ? execute(creep, assignment)
+    return assignment ? execute(creep, assignment, energy)
       : { creepName: creep.name, phase: 'idle', accepted: false };
   }
   return acquire(creep, energy);
