@@ -6,6 +6,9 @@ import { parse } from 'yaml';
 const template = parse(readFileSync(new URL('../../template.yaml', import.meta.url), 'utf8'), {
   customTags: ['Ref', 'Sub', 'GetAtt'].map(name => ({ tag: '!' + name, resolve: value => ({ [name]: value }) }))
 });
+const opsTemplate = parse(readFileSync(new URL('../../../template.yaml', import.meta.url), 'utf8'), {
+  customTags: ['Ref', 'Sub', 'GetAtt'].map(name => ({ tag: '!' + name, resolve: value => ({ [name]: value }) }))
+});
 test('IAM has exactly one invocation resource and only own log stream writes', () => {
   const policies = template.Resources.McpRole.Properties.Policies;
   assert.equal(policies.length, 1);
@@ -30,6 +33,10 @@ test('MCP stack has only boundary resources, no database, secrets, collector or 
   assert.equal(fn.MemorySize, 128);
   assert.equal(fn.Timeout, 25);
   assert.equal(fn.ReservedConcurrentExecutions, 2);
+  assert.equal(
+    opsTemplate.Resources.TelemetryQueryFunction.Properties.ReservedConcurrentExecutions,
+    fn.ReservedConcurrentExecutions
+  );
   assert.equal(fn.VpcConfig, undefined);
   assert.equal(fn.FunctionUrlConfig, undefined);
   assert.equal(template.Resources.McpLogGroup.Properties.RetentionInDays, 7);
