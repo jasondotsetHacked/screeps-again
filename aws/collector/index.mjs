@@ -16,8 +16,6 @@ import {
 const dynamodb = new DynamoDBClient({});
 const ssm = new SSMClient({});
 
-let tokenPromise;
-
 function requiredEnv(name) {
   const value = process.env[name];
   if (!value) throw new Error('Missing required environment variable: ' + name);
@@ -29,26 +27,15 @@ function sleep(ms) {
 }
 
 async function getScreepsToken() {
-  if (!tokenPromise) {
-    tokenPromise = ssm
-      .send(
-        new GetParameterCommand({
-          Name: requiredEnv('SCREEPS_TOKEN_PARAMETER'),
-          WithDecryption: true
-        })
-      )
-      .then((result) => {
-        const token = result.Parameter?.Value;
-        if (!token) throw new Error('Screeps token parameter has no value');
-        return token;
-      })
-      .catch((error) => {
-        tokenPromise = undefined;
-        throw error;
-      });
-  }
-
-  return tokenPromise;
+  const result = await ssm.send(
+    new GetParameterCommand({
+      Name: requiredEnv('SCREEPS_TOKEN_PARAMETER'),
+      WithDecryption: true
+    })
+  );
+  const token = result.Parameter?.Value;
+  if (!token) throw new Error('Screeps token parameter has no value');
+  return token;
 }
 
 async function readOpsMemory(token, shard) {

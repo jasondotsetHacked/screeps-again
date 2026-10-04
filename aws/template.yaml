@@ -64,7 +64,7 @@ Resources:
       Architectures:
         - arm64
       MemorySize: 128
-      Timeout: 15
+      Timeout: 30
       ReservedConcurrentExecutions: 1
       Environment:
         Variables:
@@ -92,7 +92,7 @@ Resources:
             Description: Collect private Screeps telemetry.
             ScheduleExpression: !Ref CollectionSchedule
             FlexibleTimeWindow:
-              Mode: OFF
+              Mode: 'OFF'
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 300

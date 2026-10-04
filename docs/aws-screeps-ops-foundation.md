@@ -21,7 +21,7 @@ AWS resources are defined in `aws/template.yaml` with AWS SAM.
 
 The stack creates:
 
-- one 128 MB ARM64 Lambda with reserved concurrency 1;
+- one 128 MB ARM64 Lambda with reserved concurrency 1 and a 30-second timeout;
 - one EventBridge Scheduler schedule;
 - one DynamoDB table using on-demand billing;
 - one CloudWatch log group with 7-day retention;
@@ -34,6 +34,8 @@ Detailed snapshots expire after 30 days by default. `LATEST` records do not expi
 ## Secret storage
 
 The Screeps token is an existing SSM Parameter Store **SecureString**. The CloudFormation stack receives only the parameter name. The secret value never becomes a CloudFormation parameter, template value, DynamoDB record, or log field.
+
+The collector fetches and decrypts the parameter on every invocation. Updating the parameter takes effect on the next invocation, including in a warm Lambda execution environment.
 
 The default parameter name is:
 
@@ -53,10 +55,12 @@ For the simplest deployment, use the default AWS-managed SSM encryption key. A c
 
 ## First deployment
 
+Deploy from this PR branch before merging it. Merging removes the GitHub ops workflow, so first complete the collection verification below to keep telemetry available during the handoff.
+
 Requirements:
 
 - AWS CLI authenticated to the target account;
-- AWS SAM CLI;
+- a current AWS SAM CLI with Node.js 22 runtime support;
 - Node.js 22 for local repository checks.
 
 Create the SecureString outside CloudFormation:
@@ -138,8 +142,11 @@ Then read the private latest record:
 ```bash
 aws dynamodb get-item \
   --table-name <TelemetryTableName> \
+  --consistent-read \
   --key '{"pk":{"S":"COLONY#shard3"},"sk":{"S":"LATEST"}}'
 ```
+
+Confirm the invocation has no `FunctionError`, its response reports a collected tick, and the `LATEST` item contains that tick and a current `collectedAt` timestamp. Use the deployed shard in the key if you changed the default. Complete this verification before merging the PR.
 
 CloudWatch logs contain only collection metadata or a short error message. The collector never intentionally logs the token, request headers, or raw Screeps response.
 
@@ -160,6 +167,12 @@ aws ssm delete-parameter --name /screeps-again/prod/screeps-api-token
 ## GitHub migration
 
 `.github/workflows/screeps-ops.yml` and the public `/screeps` issue-command bridge are removed by this migration. Issue #14 can remain as historical information, but it is no longer a runtime dependency.
+
+Handoff order:
+
+1. Validate, build, and deploy the AWS stack from this PR branch.
+2. Invoke the collector and verify the DynamoDB colony `LATEST` record as described above.
+3. Merge the PR to retire the GitHub ops workflow and Issue #14's live updates.
 
 After the AWS deployment is verified, the old GitHub `SCREEPS_API_TOKEN` Actions secret can be removed if no other workflow uses it.
 
