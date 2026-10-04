@@ -1,0 +1,109 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: Private, low-cost Screeps telemetry collection for screeps-again.
+
+Parameters:
+  ScreepsShard:
+    Type: String
+    Default: shard3
+    Description: Screeps shard containing the live colony.
+
+  ScreepsTokenParameterName:
+    Type: String
+    Default: /screeps-again/prod/screeps-api-token
+    Description: Existing SSM SecureString parameter containing a read-only Screeps API token.
+
+  CollectionSchedule:
+    Type: String
+    Default: rate(15 minutes)
+    Description: EventBridge Scheduler expression for telemetry collection.
+
+  TelemetryRetentionDays:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    MaxValue: 365
+    Description: Days to retain detailed history. LATEST records do not expire.
+
+Resources:
+  TelemetryTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      TimeToLiveSpecification:
+        AttributeName: expiresAt
+        Enabled: true
+      SSESpecification:
+        SSEEnabled: true
+
+  TelemetryCollectorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      Description: Reads private Screeps Memory.ops telemetry and stores compact history.
+      CodeUri: collector/
+      Handler: index.handler
+      Runtime: nodejs22.x
+      Architectures:
+        - arm64
+      MemorySize: 128
+      Timeout: 15
+      ReservedConcurrentExecutions: 1
+      Environment:
+        Variables:
+          TELEMETRY_TABLE: !Ref TelemetryTable
+          SCREEPS_SHARD: !Ref ScreepsShard
+          SCREEPS_TOKEN_PARAMETER: !Ref ScreepsTokenParameterName
+          TELEMETRY_RETENTION_DAYS: !Ref TelemetryRetentionDays
+      Policies:
+        - Version: '2012-10-17'
+          Statement:
+            - Sid: WriteTelemetryOnly
+              Effect: Allow
+              Action:
+                - dynamodb:BatchWriteItem
+              Resource: !GetAtt TelemetryTable.Arn
+            - Sid: ReadOnlyScreepsTokenParameter
+              Effect: Allow
+              Action:
+                - ssm:GetParameter
+              Resource: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${ScreepsTokenParameterName}
+      Events:
+        TelemetrySchedule:
+          Type: ScheduleV2
+          Properties:
+            Description: Collect private Screeps telemetry.
+            ScheduleExpression: !Ref CollectionSchedule
+            FlexibleTimeWindow:
+              Mode: OFF
+            RetryPolicy:
+              MaximumRetryAttempts: 2
+              MaximumEventAgeInSeconds: 300
+
+  TelemetryCollectorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${TelemetryCollectorFunction}
+      RetentionInDays: 7
+
+Outputs:
+  TelemetryTableName:
+    Description: DynamoDB table containing private Screeps telemetry.
+    Value: !Ref TelemetryTable
+
+  TelemetryCollectorFunctionName:
+    Description: Lambda function used for telemetry collection.
+    Value: !Ref TelemetryCollectorFunction
+
+  ScreepsTokenParameter:
+    Description: SSM parameter name expected by the collector.
+    Value: !Ref ScreepsTokenParameterName

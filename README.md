@@ -130,8 +130,10 @@ Once Spawn1 exists, the runtime:
 
 Ops snapshots distinguish bounded/surplus assigned capacity, worker acquisition,
 travel, accepted work intents, and blocked execution. These describe planning
-and accepted intents, not measured work delivered by the game engine. Public ops
-shows only coarse safety action status; eligibility and threat reasons remain private.
+and accepted intents, not measured work delivered by the game engine. The runtime
+publishes compact telemetry to private `Memory.ops`; the AWS collector reads only
+that path and stores private history in DynamoDB. The former public GitHub issue
+ops console is retired. See [AWS Screeps Ops](docs/aws-screeps-ops-foundation.md).
 
 Workers remain generalists. Dedicated miners/haulers, remote mining, advanced base planning, market logic, combat doctrine, and the deeper forecaster are future work. See [the colony labor architecture](docs/colony-labor.md) for the runtime pipeline, budgets, and transitional systems.
 
