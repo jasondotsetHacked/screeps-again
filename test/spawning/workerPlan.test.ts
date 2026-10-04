@@ -8,11 +8,12 @@ Object.assign(globalThis, {
   OK: 0, ERR_NOT_ENOUGH_ENERGY: -6
 });
 
-const { planWorkerPopulation, planWorkerSpawn, workerTarget } =
+const { planWorkerPopulation, planWorkerSpawn, workerTarget, requestWorkerPopulation } =
   await import('../../src/spawning/workerPlan');
 const { bodyCost, buildWorkerBody, replacementLeadTicks } =
   await import('../../src/spawning/workerBody');
-const { runSpawning } = await import('../../src/spawning/runSpawning');
+const { runSpawning: executeSpawn } = await import('../../src/spawning/runSpawning');
+const { planSpawn } = await import('../../src/spawning/spawnPlan');
 const roomName = 'E25S47';
 const memory = { kind: 'worker', home: roomName };
 const capacity = 800;
@@ -29,6 +30,62 @@ function population(effective: number, target = 4) {
     spawning: [], replacementLead: lead, target
   });
 }
+
+// Exercise the same producer/arbitrator/adapter composition used by the colony.
+function runSpawning(room: Room) {
+  const spawns = room.find(FIND_MY_STRUCTURES).filter((structure): structure is StructureSpawn =>
+    structure.structureType === STRUCTURE_SPAWN);
+  const replacementLead = replacementLeadTicks(buildWorkerBody(room.energyCapacityAvailable));
+  const request = requestWorkerPopulation({
+    home: room.name, replacementLead,
+    energyAvailable: room.energyAvailable, energyCapacity: room.energyCapacityAvailable,
+    population: planWorkerPopulation({
+      roomName: room.name, workers: Object.values(Game.creeps),
+      spawning: spawns.flatMap((spawn) => spawn.spawning
+        ? [{ name: spawn.spawning.name, memory: Memory.creeps[spawn.spawning.name] }] : []),
+      replacementLead, target: workerTarget(room.find(FIND_SOURCES).length, room.energyCapacityAvailable)
+    })
+  });
+  return executeSpawn(room, planSpawn({
+    home: room.name, requests: request ? [request] : [],
+    energyAvailable: room.energyAvailable, energyCapacity: room.energyCapacityAvailable
+  }), spawns);
+}
+
+test('worker request arbitration preserves spawn choices across population, aging and energy boundaries', () => {
+  for (const capacity of [199, 200, 300, 550, 800, 1200, 1800]) {
+    for (const target of [3, 4, 5, 6, 7]) {
+      for (let effective = 0; effective <= target; effective += 1) {
+        for (const energy of [0, 199, 200, 250, 399, 400, capacity - 1, capacity]) {
+          for (const aging of [false, true]) {
+            const pop = { ...population(effective, target), liveWorkers: effective + Number(aging),
+              agingWorkers: Number(aging) };
+            const expected = planWorkerSpawn(pop, energy, capacity);
+            const request = requestWorkerPopulation({
+              home: roomName, population: pop, replacementLead: lead,
+              energyAvailable: energy, energyCapacity: capacity
+            });
+            const actual = planSpawn({ home: roomName, requests: request ? [request] : [],
+              energyAvailable: energy, energyCapacity: capacity });
+            assert.deepEqual(actual?.request.body ?? null, expected?.body ?? null);
+            assert.equal(actual?.cost ?? null, expected?.cost ?? null);
+            assert.equal(actual?.request.reason ?? null, expected?.reason ?? null);
+          }
+        }
+      }
+    }
+  }
+});
+
+test('unaffordable worker intent remains a request and reserves its priority', () => {
+  for (const [effective, priority] of [[0, 'bootstrap'], [1, 'recovery'], [3, 'normal']] as const) {
+    const request = requestWorkerPopulation({ home: roomName, population: population(effective),
+      replacementLead: lead, energyAvailable: 199, energyCapacity: capacity });
+    assert.equal(request?.priority, priority);
+    assert.equal(planSpawn({ home: roomName, requests: [request!],
+      energyAvailable: 199, energyCapacity: capacity }), null);
+  }
+});
 
 test('population counts each worker name once across both spawning representations', () => {
   const workers = [worker('live'), worker('both', undefined, true)];

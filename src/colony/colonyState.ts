@@ -1,4 +1,5 @@
 import { buildWorkerBody, replacementLeadTicks } from '../spawning/workerBody';
+import { readCreepIdentity, samePopulation } from '../creeps/identity';
 import { planWorkerPopulation, workerTarget, type WorkerPopulation } from '../spawning/workerPlan';
 import type { WorkTarget, WorkPosition } from '../work/demands';
 import type { EnergySupply } from './planEnergy';
@@ -70,8 +71,11 @@ export function observeColony(room: Room): ColonyState {
     s.structureType === STRUCTURE_SPAWN && (s as StructureSpawn).my);
   const towers = structures.filter((s): s is StructureTower =>
     s.structureType === STRUCTURE_TOWER && (s as StructureTower).my);
-  const workerCreeps = Object.values(Game.creeps).filter((creep) =>
-    creep.memory.home === room.name && creep.memory.kind === 'worker');
+  const gameCreeps = Object.values(Game.creeps);
+  const workerCreeps = gameCreeps.filter((creep) => {
+    const identity = readCreepIdentity(creep.memory);
+    return identity !== null && samePopulation(identity, { home: room.name, kind: 'worker' });
+  });
   const plannedBody = buildWorkerBody(room.energyCapacityAvailable);
   const replacementLead = plannedBody.length ? replacementLeadTicks(plannedBody) : 0;
   const spawning = spawns.flatMap((spawn) => {
@@ -126,7 +130,7 @@ export function observeColony(room: Room): ColonyState {
     ...observeSafety(room, structures, hostiles, spawns, towers),
     workerCreeps, workers, replacementLead,
     population: planWorkerPopulation({
-      roomName: room.name, workers: workerCreeps, spawning, replacementLead,
+      roomName: room.name, workers: gameCreeps, spawning, replacementLead,
       target: workerTarget(sources.length, room.energyCapacityAvailable)
     }),
     refillTargets: structures.flatMap((structure) => {

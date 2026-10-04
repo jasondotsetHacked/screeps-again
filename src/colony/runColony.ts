@@ -3,6 +3,8 @@ import { runWorker, workerEnergyContext } from '../creeps/runWorker';
 import { recoverWorkerMemory } from '../memory/lifecycle';
 import { recordOpsError } from '../ops/opsTelemetry';
 import { runSpawning } from '../spawning/runSpawning';
+import { requestWorkerPopulation } from '../spawning/workerPlan';
+import { planSpawn } from '../spawning/spawnPlan';
 import { runTowers } from '../structures/runTowers';
 import { observeColony, type ColonyState } from './colonyState';
 import { planWork } from './planWork';
@@ -42,7 +44,14 @@ export function runColony(room: Room, observation = prepareColony(room)): Colony
     // Optional site placement must not abort population recovery or labor.
     recordOpsError('colony', room.name + '/construction', error);
   }
-  runSpawning(room, state);
+  const workerRequest = requestWorkerPopulation({
+    home: room.name, population: state.population, replacementLead: state.replacementLead,
+    energyAvailable: room.energyAvailable, energyCapacity: room.energyCapacityAvailable
+  });
+  runSpawning(room, planSpawn({
+    home: room.name, requests: workerRequest ? [workerRequest] : [],
+    energyAvailable: room.energyAvailable, energyCapacity: room.energyCapacityAvailable
+  }), state.spawns);
   const demands = planWork(state);
   const assignments = scheduleWorkers(state, demands);
   const byName = new Map(assignments.map((assignment) => [assignment.creepName, assignment]));

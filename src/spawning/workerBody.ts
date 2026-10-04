@@ -17,9 +17,7 @@ export function buildWorkerBody(energyBudget: number): BodyPartConstant[] {
   return body;
 }
 
-export function bodyCost(body: BodyPartConstant[]): number {
-  return body.reduce((sum, part) => sum + BODYPART_COST[part], 0);
-}
+export { bodyCost } from './body';
 
 export function replacementLeadTicks(
   body: BodyPartConstant[],
