@@ -1,6 +1,6 @@
 # Private Screeps MCP gateway
 
-This gateway is **READ ONLY**. It exposes exactly three private telemetry tools to authenticated, authorized MCP clients. This PR implements the boundary for independent review; nothing has been deployed. Do not run the deployment section until a separate deployment is authorized.
+This gateway is **READ ONLY**. It exposes exactly three private telemetry tools to authenticated, authorized MCP clients. The gateway has been deployed and successfully connected from ChatGPT through Auth0 during acceptance testing. This PR also raises the private telemetry query Lambda's reserved concurrency from one to two so parallel read-only tool calls can match the gateway's concurrency.
 
 ## Architecture and capability boundary
 
@@ -14,7 +14,7 @@ ChatGPT / Codex -- HTTPS + OAuth bearer token --> HTTP API /mcp
                                             existing telemetry history
 ```
 
-The separate stack is `screeps-again-mcp`, in `us-east-1`. `screeps-again-prod` retains all collector/query/database resources and permissions. The query Lambda stays private. No telemetry template changes or live stack changes are required.
+The separate stack is `screeps-again-mcp`, in `us-east-1`. `screeps-again-prod` retains all collector/query/database resources and permissions. The query Lambda stays private. The only telemetry-stack code change in this PR is increasing `TelemetryQueryFunction` reserved concurrency from one to two; IAM, DynamoDB access, collector behavior, and the read-only capability boundary are unchanged.
 
 The gateway validates tool arguments, injects the configured shard, synchronously invokes the existing query Lambda, checks the returned envelope/byte limit, and returns its result unchanged as MCP structured content and JSON text. It does not derive database keys, read DynamoDB, project telemetry, calculate diagnostics, cache results, store queries, call Screeps, run an LLM, or offer remediation.
 
@@ -90,11 +90,11 @@ npx @modelcontextprotocol/inspector
 
 In Inspector select Streamable HTTP, URL `http://127.0.0.1:3000/mcp`, and no authentication. List/call all three tools, try invalid arguments, and verify there are no write tools. This dedicated entry binds only loopback, has no AWS adapter, and returns empty/synthetic data. Its intentional local authentication bypass is never imported by Lambda. It does **not** verify OAuth or production connectivity. Do not expose this preview through a tunnel or publish it. Local config can be loaded from the repository's ignored `.env`; no credentials are needed for the synthetic preview.
 
-After a separately authorized deployment, use [Inspector's Auth settings](https://auth0.com/ai/docs/mcp/guides/test-your-mcp-server-with-mcp-inspector) with the HTTPS endpoint and configured Auth0 tenant to inspect actual metadata, PKCE, resource binding, access token claims, and refresh behavior. Do not paste tokens into terminal arguments, issues, or logs. Verify absent credentials get 401; unrelated identities and wrong scopes get 403; intended identities can list exactly three tools and read telemetry. These live integration steps remain unperformed in this PR.
+After a separately authorized deployment, use [Inspector's Auth settings](https://auth0.com/ai/docs/mcp/guides/test-your-mcp-server-with-mcp-inspector) with the HTTPS endpoint and configured Auth0 tenant to inspect actual metadata, PKCE, resource binding, access token claims, and refresh behavior. Do not paste tokens into terminal arguments, issues, or logs. Verify absent credentials get 401; unrelated identities and wrong scopes get 403; intended identities can list exactly three tools and read telemetry. Live ChatGPT acceptance testing completed successfully with Auth0 Dynamic Client Registration: ChatGPT discovered the OAuth metadata and `telemetry:read` scope, authenticated an allowlisted user, listed exactly the three intended tools, and returned live `latest` and `diagnose` telemetry. An initial pair of simultaneous tool calls exposed backend concurrency-one throttling; the query concurrency change in this PR addresses that mismatch.
 
-## Later deployment, after independent review
+## Deployment and updates
 
-These commands describe a **future** operation; they were not executed for this PR. Use existing operator AWS SSO/profile credentials. The gateway runtime never needs CloudFormation listing, STS, or `lambda:GetFunction` permissions.
+These commands are the deployment/update path used for the gateway. Use existing operator AWS SSO/profile credentials. The gateway runtime never needs CloudFormation listing, STS, or `lambda:GetFunction` permissions.
 
 Resolve the existing cross-stack contract without changing `screeps-again-prod` (Bash example):
 
@@ -124,7 +124,7 @@ The ten declared stack resources are: HTTP API, default throttled stage, Lambda 
 
 ## ChatGPT and Codex connections
 
-After deployment/OAuth verification, [add a private MCP connection in ChatGPT developer mode](https://developers.openai.com/plugins/quickstart). Supply the HTTPS `McpEndpoint`, select OAuth, copy the exact redirect/client metadata identifiers shown by the connection UI to Auth0, authenticate as an allowlisted identity, and verify all three tools. Keep the connection personal or restricted to the intended workspace members. Do not publish it in a public plugin directory. Developer mode and connection controls vary by plan/workspace.
+After deployment/OAuth verification, add a private MCP connection from ChatGPT's **Plugins → Add → Create custom MCP server** flow. Supply the HTTPS `McpEndpoint`, select OAuth and Dynamic Client Registration (DCR), authenticate as an allowlisted identity, and verify all three tools. Keep the connection personal or restricted to the intended workspace members. Do not publish it in a public plugin directory. Connection controls vary by plan/workspace.
 
 For a [Codex host supporting remote OAuth](https://learn.chatgpt.com/docs/extend/mcp?surface=cli), add a private entry to your **local** Codex configuration:
 
@@ -141,4 +141,4 @@ For a later authorized teardown, remove client connections/revoke provider grant
 
 AWS idle compute cost is near zero: Lambda and HTTP API are request-driven, reserved concurrency does not reserve paid running instances, and there is no NAT, VPC endpoint, ALB, ECS, EC2, provisioned concurrency, or custom domain. Seven-day log storage and any SAM packaging S3 artifacts can have small storage charges. Invocations also incur the existing query Lambda/DynamoDB read charges. Auth0 is external and plan-dependent; confirm [current Auth0 pricing](https://auth0.com/pricing) and tenant feature entitlement before deployment. Internet traffic, including rejected requests, can incur AWS invocation charges; throttling bounds normal use but is not a billing guarantee.
 
-Known limits: one configured shard/colony, no user-specific data partitioning, no caching, no writes, no live AWS/ChatGPT acceptance test yet, no continuous streams or resumability, and provider/client setup required before connection. The gateway inherits telemetry freshness, sampling gaps, bounded 24-hour windows, result truncation, and causal restraint from the query Lambda. 128 MB and the 25-second budget need observation during the first authorized deployment; cold starts, JWKS rotation/outages, backend concurrency-one throttling, and client timeouts may produce safe temporary failures. Verify tenant discovery and OAuth resource behavior with Inspector before calling the integration production-ready.
+Known limits: one configured shard/colony, no user-specific data partitioning, no caching, no writes, no continuous streams or resumability, and provider/client setup required before connection. The gateway inherits telemetry freshness, sampling gaps, bounded 24-hour windows, result truncation, and causal restraint from the query Lambda. Both the MCP gateway and query Lambda are configured for reserved concurrency two after the telemetry stack update; higher parallelism can still be throttled safely. Cold starts, JWKS rotation/outages, and client timeouts may produce safe temporary failures.
