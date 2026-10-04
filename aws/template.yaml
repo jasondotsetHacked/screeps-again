@@ -46,9 +46,17 @@ Resources:
       SSESpecification:
         SSEEnabled: true
 
+  TelemetryCollectorLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}-telemetry-collector
+      RetentionInDays: 7
+
   TelemetryCollectorFunction:
     Type: AWS::Serverless::Function
+    DependsOn: TelemetryCollectorLogGroup
     Properties:
+      FunctionName: !Sub ${AWS::StackName}-telemetry-collector
       Description: Reads private Screeps Memory.ops telemetry and stores compact history.
       CodeUri: collector/
       Handler: index.handler
@@ -88,12 +96,6 @@ Resources:
             RetryPolicy:
               MaximumRetryAttempts: 2
               MaximumEventAgeInSeconds: 300
-
-  TelemetryCollectorLogGroup:
-    Type: AWS::Logs::LogGroup
-    Properties:
-      LogGroupName: !Sub /aws/lambda/${TelemetryCollectorFunction}
-      RetentionInDays: 7
 
 Outputs:
   TelemetryTableName:
