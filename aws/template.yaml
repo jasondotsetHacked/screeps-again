@@ -116,7 +116,7 @@ Resources:
         - arm64
       MemorySize: 128
       Timeout: 15
-      ReservedConcurrentExecutions: 1
+      ReservedConcurrentExecutions: 2
       Role: !GetAtt TelemetryQueryRole.Arn
       Environment:
         Variables:
