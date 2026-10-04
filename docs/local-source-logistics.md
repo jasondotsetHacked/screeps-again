@@ -1,5 +1,11 @@
 # Stage 3: local source operations and logistics
 
+Phase 3.1 refines the deployed Stage 3 pilot in
+[local-logistics-refinement.md](local-logistics-refinement.md). That document
+supersedes the miner body/replacement, hauler loading, buffer-access, and
+construction policies below. This Stage 3 document retains its original
+architecture and validation record.
+
 ## Goal and boundary
 
 An established owned colony can transition viable local sources to dedicated
@@ -100,9 +106,10 @@ T=4, a three-pair hauler costs 300 and carries 150, so one body covers the estim
 120 energy per cycle. T=20 uses eight pairs and two haulers; T=40 uses three.
 This sizes short-trip bodies without requiring the room's entire capacity budget.
 
-T reuses the selected tile's tick-local route estimate: plain/road terrain is
-charged one tick, swamp terrain five ticks for the loaded balanced hauler. Road
-swamps are deliberately overestimated. A five-ticks-per-tile Chebyshev allowance
+T reuses the selected tile's tick-local terrain estimate: non-swamp terrain is
+charged one tick and swamp terrain five ticks, regardless of roads. Roads over
+swamp therefore receive no discount and are deliberately overestimated.
+A five-ticks-per-tile Chebyshev allowance
 from spawn to the farthest owned spawn/extension/tower covers a conservative
 consumer detour. It is an estimate, not an exact sink route or traffic simulation.
 All path queries are `maxRooms: 1`, `ignoreCreeps: true`, `range: 1`, `maxOps: 2000`.

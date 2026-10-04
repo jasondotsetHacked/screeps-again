@@ -107,7 +107,8 @@ export function observeColony(room: Room): ColonyState {
     ...sources.map((source): EnergySupply => ({ ...workTarget(source), kind: 'harvest',
       amount: source.energy, regeneration: source.ticksToRegeneration })),
     ...droppedEnergy.map((drop): EnergySupply => ({ ...workTarget(drop), kind: 'pickup', amount: drop.amount })),
-    ...[...structures.filter((s): s is StructureContainer => s.structureType === STRUCTURE_CONTAINER),
+    ...[...structures.filter((s): s is StructureContainer | StructureStorage => s.structureType === STRUCTURE_CONTAINER ||
+      (s.structureType === STRUCTURE_STORAGE && (s as StructureStorage).my && s.isActive())),
       ...tombstones, ...ruins].flatMap((store): EnergySupply[] => {
       const amount = store.store.getUsedCapacity(RESOURCE_ENERGY);
       return amount > 0 ? [{ ...workTarget(store), kind: 'withdraw', amount }] : [];

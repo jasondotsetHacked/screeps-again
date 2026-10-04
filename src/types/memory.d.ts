@@ -123,6 +123,7 @@ declare global {
   interface CreepMemory extends Partial<CreepIdentity> {
     sourceId?: Id<Source>;
     working?: boolean;
+    delivering?: boolean;
     born?: number;
   }
 }

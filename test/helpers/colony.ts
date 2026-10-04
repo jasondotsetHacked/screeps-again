@@ -34,7 +34,7 @@ Object.assign(globalThis, {
     ranged_attack: { XKHO2: { rangedAttack: 4 } }, heal: { XLHO2: { heal: 4, rangedHeal: 4 } },
     tough: { XGHO2: { damage: 0.3 } }
   },
-  OBSTACLE_OBJECT_TYPES: ['spawn', 'extension', 'tower', 'constructedWall', 'controller'],
+  OBSTACLE_OBJECT_TYPES: ['spawn', 'extension', 'tower', 'storage', 'link', 'terminal', 'constructedWall', 'controller'],
   STRUCTURE_WALL: 'constructedWall',
   RESOURCE_ENERGY: 'energy',
   CREEP_SPAWN_TIME: 3,
@@ -50,6 +50,8 @@ Object.assign(globalThis, {
   FIND_TOMBSTONES: 9,
   FIND_RUINS: 10,
   FIND_MINERALS: 11,
+  LOOK_STRUCTURES: 'structure',
+  LOOK_CONSTRUCTION_SITES: 'constructionSite',
   STRUCTURE_INVADER_CORE: 'invaderCore',
   STRUCTURE_RAMPART: 'rampart',
   TERRAIN_MASK_WALL: 1,
@@ -58,6 +60,9 @@ Object.assign(globalThis, {
   STRUCTURE_TOWER: 'tower',
   STRUCTURE_CONTAINER: 'container',
   STRUCTURE_ROAD: 'road',
+  STRUCTURE_STORAGE: 'storage',
+  STRUCTURE_LINK: 'link',
+  STRUCTURE_TERMINAL: 'terminal',
   CONTROLLER_DOWNGRADE: {
     1: 20000,
     2: 10000,
