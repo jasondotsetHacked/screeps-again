@@ -67,7 +67,7 @@ test('hauler acquisition selects only its operation buffer', () => {
   const assignment = planHauling({ pos: c.pos, energy: 0, freeCapacity: 400 }, o,
     [...state.energySupplies, { id: 'foreign', pos: c.pos, amount: 2000, kind: 'withdraw' }], []);
   assert.equal(assignment?.target.id, f.buffer.id);
-  assert.equal(runHauler(c, o, assignment), true);
+  assert.equal(runHauler(c, o, assignment), 'resource');
   assert.deepEqual(f.actions, [`${c.name}:withdraw:${f.buffer.id}:400`]);
 });
 
@@ -190,7 +190,7 @@ test('hauler travel and away specialist execution never permit cross-room moveme
   assert.equal(f.moves[0].maxRooms, 1);
   c.room = { name: 'E1N1' } as Room; c.pos = position(10, 10, 'E1N1');
   assert.equal(planHauling({ pos: c.pos, energy: 0, freeCapacity: 400 }, o, [], []), undefined);
-  assert.equal(runHauler(c, o, undefined), false); assert.equal(f.moves.length, 1);
+  assert.equal(runHauler(c, o, undefined), 'blocked'); assert.equal(f.moves.length, 1);
 });
 
 test('corrupted specialist metadata cannot reassign a body to another operation or worker population', () => {
@@ -210,7 +210,7 @@ test('executors reject a mismatched operation assignment even with otherwise val
   const f = logisticsFixture(); const o = operation(f);
   const miner = f.specialist('miner', 'a', 'other'); const hauler = f.specialist('hauler', 'b', 'other');
   assert.equal(runMiner(miner, o, true), false);
-  assert.equal(runHauler(hauler, o, { kind: 'withdraw', target: { id: f.buffer.id, pos: f.buffer.pos }, amount: 50 }), false);
+  assert.equal(runHauler(hauler, o, { kind: 'withdraw', target: { id: f.buffer.id, pos: f.buffer.pos }, amount: 50 }), 'blocked');
   assert.deepEqual(f.actions, []); assert.deepEqual(f.moves, []);
 });
 

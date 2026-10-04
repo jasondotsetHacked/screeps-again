@@ -44,12 +44,19 @@ The shared tile selector considers the eight adjacent tiles, excludes terrain
 walls, blocking structures/private hostile ramparts, source/controller tiles,
 and room borders. It adopts a usable built container first, then a valid owned
 container site, then a placeable empty tile. Distance to the deterministic active
-spawn, y, and x break ties. Claimed tiles cannot serve two operations. The miner
-stands on the selected container; buffer and mining position are the same tile.
+spawn, y, and x break ties. Before assigning a NEW buffer tile, the selector
+checks a bounded local route and tries the next ordered candidate if the preferred
+one is unreachable. Built buffers/sites are adopted without duplicating them;
+unreachable adopted infrastructure remains inactive. The selected route time is
+reused within this tick. Claimed tiles cannot serve two operations. The miner stands
+on the selected container; buffer and mining position are the same tile.
 
 Construction uses exactly those planned tiles, with the same selector available
-for standalone calls. Any existing adjacent container/site prevents duplicate
-placement, even if currently unusable. Extension priority, tower priority, four
+for standalone calls. A container/site on the source's assigned tile prevents
+duplicate placement. A shared adjacent container belongs to the operation that
+adopted it; the other source can build its own distinct assigned tile. New placement
+requires the selected tile's successful route check. Extension priority, tower
+priority, four
 new sites per planning interval, construction error isolation, and road behavior
 are retained. New sites join shared observation on the next tick. Sites do not
 count as ready buffers.
@@ -93,7 +100,7 @@ T=4, a three-pair hauler costs 300 and carries 150, so one body covers the estim
 120 energy per cycle. T=20 uses eight pairs and two haulers; T=40 uses three.
 This sizes short-trip bodies without requiring the room's entire capacity budget.
 
-T is recomputed from one local path per built buffer: plain/road terrain is
+T reuses the selected tile's tick-local route estimate: plain/road terrain is
 charged one tick, swamp terrain five ticks for the loaded balanced hauler. Road
 swamps are deliberately overestimated. A five-ticks-per-tile Chebyshev allowance
 from spawn to the farthest owned spawn/extension/tower covers a conservative
@@ -107,6 +114,12 @@ population. Spawning bodies count toward their own operation immediately.
 Replacement lead is body spawn time + T (2T for miner mobility) + 50 ticks of
 queue/safety allowance. A stationary incumbent continues working while its
 replacement waits nearby; only one miner is assigned to harvest each source.
+Hauler requests require an effective miner (including spawn-only bodies). With no
+miner, the producer requests mining first. When any enabled operation needs an
+aging specialist replacement, the producer emits those replacement requests and
+defers new specialist expansion until they are covered. These dependencies and
+maintenance precedence belong to the producer; generic arbitration/adapter role
+policy is unchanged.
 
 Arbitration now orders **bootstrap > recovery > normal > logistics**. This
 explicit category protects every worker replacement, independent of lexical IDs.
@@ -148,7 +161,13 @@ from names; a total creep wipe bootstraps generalists before logistics.
 The colony dispatches each valid specialist once from its home identity. Miners
 travel to the exact tile with `range: 0`, harvest only the assigned source, and
 transfer to its assigned container. Replacement overlap does not produce a
-second harvesting miner. Invalid or missing objects stop acquisition safely.
+second harvesting miner. Off-tile miners without MOVE are ineligible for primary
+assignment. Saturating miners rank ahead of underpowered movable incumbents, then
+stationary position, TTL, and name break ties. A damaged movable occupant yields to
+a healthy replacement via a free local waiting tile selected by the colony, even
+if all WORK or CARRY parts are gone. An immobile tile occupant or one without a
+safe yield tile remains in place; it can keep doing useful work and workers cover
+any missing throughput. Invalid or missing objects stop acquisition safely.
 
 Hauler planning separates acquisition and delivery. Empty haulers acquire only
 their source buffer's observed energy; loaded haulers select owned refill
@@ -159,9 +178,13 @@ Every movement intent stays within `maxRooms: 1`; away specialists remain owned
 by home but do not attempt to return through another room.
 
 Haulers execute before worker scheduling/acquisition. Accepted withdraw/transfer
-intents and usable travel reserve exact amounts in shared tick-local supply and
-consumer projections. Failed intents/movement reserve nothing. Worker refill
-demands are replanned from remaining capacity; worker runtime transfers also cap
+intents returning OK reserve exact amounts in shared tick-local supply and
+consumer projections. Hauler execution distinguishes resource, travel, idle, and
+blocked outcomes. Travel never consumes supply or refill capacity, whether movement
+succeeds or fails. Worker acquisition/refill reservations follow the same accepted
+resource-intent rule, so an earlier traveling body cannot hide energy/demand from a
+later in-range actor. Worker refill demands are replanned from remaining capacity;
+worker runtime transfers also cap
 their amount against that same projection. Worker acquisitions share the same
 remaining supplies. Reservations reset from observations next tick, never persist,
 and do not count pending miner deposits as already available energy.
@@ -188,8 +211,13 @@ cover planner/executor failure. No raw intel, route, remote strategy, or additio
 
 Operation observations reuse existing sources/structures/sites/refill projections;
 they add no room finds to the per-tick shared observation. Eight adjacent terrain
-checks per source and at most one bounded local path per built, capacity-supported
-source are added each tick. Periodic construction still has its own existing scans;
+checks per source are added each tick. Established buffers/sites use one bounded
+local route check per source; selecting new tiles normally uses one check but may
+try at most eight adjacent candidates, each capped at 2,000 path operations. This
+also applies before capacity reaches the specialist threshold, so construction
+avoids committing to unreachable buffers. Miner handoff planning reads adjacent
+terrain and existing occupants for a safe waiting tile. No route cache or persistent
+path data is introduced. Periodic construction still has its own existing scans;
 the container helper adds two structure/site room finds per container-placement pass,
 replacing per-source range finds and old placement paths. Movement retains normal Screeps path reuse.
 
@@ -214,23 +242,32 @@ worker buffer consumption, terrain, regeneration, and congestion.
 
 | Check | Baseline main | Stage 3 |
 | --- | ---: | ---: |
-| Repository tests | 218 | 282 |
+| Repository tests | 218 | 303 |
 | MCP tests | 73 | 73 |
-| Combined tests | 291 | 355 |
+| Combined tests | 291 | 376 |
 | Failures / cancellations / skips / todos | 0 / 0 / 0 / 0 | 0 / 0 / 0 / 0 |
 | Typecheck and build (`npm run check`) | Pass | Pass |
 | AWS SAM lint (`npm run aws:validate`) | Pass | Pass |
 | MCP SAM lint (`npm run mcp:validate`) | Pass | Pass |
 | `git diff --check` | Pass | Pass |
-| Unminified `dist/main.js` | 60,422 bytes | 76,946 bytes |
+| Unminified `dist/main.js` | 60,422 bytes | 79,770 bytes |
 
-64 repository tests added; MCP tests unchanged. Bundle delta is **+16,524 bytes
-(+27.347654%)**. Focused coverage includes deterministic sources/tiles, adoption,
+85 repository tests added versus main; MCP tests unchanged. Bundle delta versus
+main is **+19,348 bytes (+32.021449%)**. The independent-review follow-up adds
+**21 tests** (282 -> 303 repository; 355 -> 376 combined) and changes the reviewed
+76,946-byte bundle to **79,770 bytes**, **+2,824 bytes (+3.670106%)**. Focused coverage
+includes deterministic sources/tiles, adoption,
 no duplicates, sites and readiness gates, bodies/throughput, arbitration under
 adversarial IDs, replacement/deduplication, scope integrity and reset recovery,
 stationary mining, source-bound hauling, shared supply/refill promises, fallback,
-damage, failed movement, exceptions, and local-only movement. Eight multi-tick
-scenarios exercise energy/travel cycles, specialist death, buffer loss/restoration,
+damage, failed movement, exceptions, and local-only movement. New review coverage
+includes distant loaded haulers leaving recovery Spawn/extension/tower demand to
+energized in-range workers, traveling workers preserving refill/supply capacity,
+shared-container/site construction ownership, reachable alternative tiles, damaged
+miner handoff (including zero WORK/CARRY), immobile stationary miners, miner-first
+startup, and aging replacement ahead of expansion. Eight lifecycle simulation
+scenarios plus a focused two-tick miner handoff exercise energy/travel cycles,
+specialist death, buffer loss/restoration,
 specialist wipe, full colony wipe, low energy, and Memory reset. Existing worker,
 safety, Stage 1 intelligence, and Stage 2 arbitration tests all pass.
 
@@ -247,9 +284,12 @@ overprovision hauling. Paths are recomputed rather than cached; constrained/fail
 paths and unusable adopted buffers stay fallback rather than triggering a layout
 rewrite. Replacement lead is best effort under competing worker requests and
 multiple specialist replacements. Collision/stuck behavior relies on existing
-`moveTo` handling and requires live acceptance. Travel reservations may briefly
-hold energy/refill demand even when engine movement is blocked after returning OK;
-they clear next tick. No persistent promises or guaranteed intent resolution exist.
+`moveTo` handling and requires live acceptance. Accepted resource intents still
+require engine resolution; projections clear next tick. Travel contributes no
+resource reservations. An immobile damaged tile occupant cannot be safely forced
+off its tile; a replacement waits until that occupant expires. A movable occupant
+without a free safe yield tile waits until a handoff is possible. No persistent
+promises or guaranteed intent resolution exist.
 
 Haulers service refill structures, not creep-to-creep transfers or an advanced
 storage network. Generalists still acquire energy for construction/upgrade/repair

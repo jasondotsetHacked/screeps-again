@@ -29,14 +29,36 @@ export function chooseSourceTiles(room: Room, sources: readonly Source[], struct
   const chosen = new Map<string, SourceTile | undefined>();
   const used = new Set<string>();
   for (const source of [...sources].sort((a, b) => a.id.localeCompare(b.id))) {
-    const tile = selectSourceTile(sourceTiles(room, source, structures, sites)
+    let candidates = sourceTiles(room, source, structures, sites)
       .filter((tile) => !used.has(`${tile.x},${tile.y}`) &&
         !sources.some((s) => s.pos.x === tile.x && s.pos.y === tile.y) &&
-        !(room.controller?.pos.x === tile.x && room.controller.pos.y === tile.y)), anchor);
+        !(room.controller?.pos.x === tile.x && room.controller.pos.y === tile.y));
+    let tile: SourceTile | undefined;
+    while (candidates.length) {
+      const candidate = selectSourceTile(candidates, anchor);
+      if (!candidate) break;
+      const routeTicks = localRouteTicks(room, candidate, anchor);
+      // Adopt durable buffers/sites without duplicating them. For NEW buffers,
+      // skip an unreachable preferred tile before committing construction to it.
+      if (candidate.containerId || candidate.siteId || routeTicks !== undefined) {
+        tile = { ...candidate, routeTicks };
+        break;
+      }
+      candidates = candidates.filter((other) => other !== candidate);
+    }
     chosen.set(source.id, tile);
     if (tile) used.add(`${tile.x},${tile.y}`);
   }
   return chosen;
+}
+
+function localRouteTicks(room: Room, tile: SourceTile, anchor: RoomPosition): number | undefined {
+  const origin = new RoomPosition(tile.x, tile.y, room.name);
+  const path = origin.findPathTo(anchor, { ignoreCreeps: true, maxRooms: 1, range: 1, maxOps: 2000 });
+  const last = path.at(-1) ?? tile;
+  if (distance({ ...last, roomName: room.name }, anchor) > 1) return undefined;
+  const terrain = room.getTerrain();
+  return path.reduce((sum, step) => sum + (terrain.get(step.x, step.y) === TERRAIN_MASK_SWAMP ? 5 : 1), 0);
 }
 
 export function observeSourceOperations(state: ColonyState): SourceOperation[] {
@@ -48,20 +70,14 @@ export function observeSourceOperations(state: ColonyState): SourceOperation[] {
   return [...state.sources].sort((a, b) => a.id.localeCompare(b.id)).map((source) => {
     const tile = tiles.get(source.id);
     let travelTicks: number | undefined;
-    if (tile?.containerId && state.energy.capacity >= 700) {
-      const origin = new RoomPosition(tile.x, tile.y, state.room.name);
-      const path = origin.findPathTo(spawn.pos, { ignoreCreeps: true, maxRooms: 1, range: 1, maxOps: 2000 });
-      const last = path.at(-1) ?? tile;
-      if (distance({ ...last, roomName: state.room.name }, spawn.pos) <= 1) {
-        const terrain = state.room.getTerrain();
-        // 1:1 CARRY:MOVE bodies take five ticks per loaded swamp step. Detour
-        // allowance to the farthest refill consumer is bounded within this room.
-        const detour = Math.max(0, ...state.structures.filter((s) =>
-          (s.structureType === STRUCTURE_EXTENSION || s.structureType === STRUCTURE_TOWER ||
-            s.structureType === STRUCTURE_SPAWN) && (s as OwnedStructure).my)
-          .map((s) => distance(s.pos, spawn.pos) * 5));
-        travelTicks = path.reduce((sum, step) => sum + (terrain.get(step.x, step.y) === TERRAIN_MASK_SWAMP ? 5 : 1), 0) + detour;
-      }
+    if (tile?.containerId && tile.routeTicks !== undefined) {
+      // 1:1 CARRY:MOVE bodies take five ticks per loaded swamp step. Detour
+      // allowance to the farthest refill consumer is bounded within this room.
+      const detour = Math.max(0, ...state.structures.filter((s) =>
+        (s.structureType === STRUCTURE_EXTENSION || s.structureType === STRUCTURE_TOWER ||
+          s.structureType === STRUCTURE_SPAWN) && (s as OwnedStructure).my)
+        .map((s) => distance(s.pos, spawn.pos) * 5));
+      travelTicks = tile.routeTicks + detour;
     }
     return planSourceOperation({ home: state.room.name, source: workTarget(source),
       energyCapacity: source.energyCapacity ?? SOURCE_ENERGY_CAPACITY, tile, travelTicks,

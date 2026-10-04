@@ -59,10 +59,10 @@ function acquire(creep: Creep, context: WorkerEnergyContext): WorkerExecution {
     const amount = Math.min(freeCapacity, supply.amount);
     result = supply.kind === 'pickup' ? creep.pickup(target as Resource)
       : creep.withdraw(target as StructureContainer | Tombstone | Ruin, RESOURCE_ENERGY, amount);
-    // Reserve accepted acquisition or usable travel only. A failed movement
-    // must leave recovered energy available to the next local consumer.
+    // Only accepted resource intents consume this tick's projection. Travel
+    // (successful or failed) leaves energy available to in-range consumers.
     const execution = outcome(creep, target, result, 'acquire');
-    if (execution.accepted || execution.phase === 'travel') supply.amount -= amount;
+    if (execution.accepted) supply.amount -= amount;
     return execution;
   }
   return outcome(creep, target, result, 'acquire');
@@ -79,7 +79,7 @@ function execute(creep: Creep, assignment: WorkerAssignment, energy: WorkerEnerg
       if (amount === 0) return { creepName: creep.name, phase: 'idle', accepted: false };
       result = creep.transfer(target as StructureSpawn | StructureExtension | StructureTower, RESOURCE_ENERGY, amount);
       const execution = outcome(creep, target, result, 'work');
-      if (consumer && (execution.accepted || execution.phase === 'travel')) consumer.amount -= amount!;
+      if (consumer && execution.accepted) consumer.amount -= amount!;
       return execution;
     }
     case 'build': result = creep.build(target as ConstructionSite); break;

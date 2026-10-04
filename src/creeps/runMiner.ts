@@ -1,11 +1,12 @@
 import { distance, type SourceOperation } from '../operations/sourceOperation';
 import { readNamedCreepIdentity } from './identity';
+import type { WorkPosition } from '../work/demands';
 
-export function runMiner(creep: Creep, operation: SourceOperation | undefined, assigned: boolean): boolean {
+export function runMiner(creep: Creep, operation: SourceOperation | undefined, assigned: boolean,
+  waitingPosition?: WorkPosition): boolean {
   const identity = readNamedCreepIdentity(creep.name, creep.memory);
   if (creep.spawning || !operation?.ready || !operation.tile || creep.room.name !== operation.home ||
-      identity?.kind !== 'miner' || identity.home !== operation.home || identity.operationId !== operation.id ||
-      creep.getActiveBodyparts(WORK) === 0 || creep.getActiveBodyparts(CARRY) === 0) return false;
+      identity?.kind !== 'miner' || identity.home !== operation.home || identity.operationId !== operation.id) return false;
   const source = Game.getObjectById(operation.source.id as Id<Source>);
   const buffer = operation.bufferId && Game.getObjectById(operation.bufferId as Id<StructureContainer>);
   if (!source || !buffer || source.pos.roomName !== operation.home || buffer.pos.roomName !== operation.home) return false;
@@ -13,9 +14,16 @@ export function runMiner(creep: Creep, operation: SourceOperation | undefined, a
   if (!assigned) {
     // Replacement overlap waits beside the incumbent, never harvests a second
     // source or competes for the single stationary position.
-    if (distance(creep.pos, tile) > 1) creep.moveTo(tile, { reusePath: 10, maxRooms: 1, range: 1 });
+    if (distance(creep.pos, tile) === 0 && waitingPosition?.roomName === operation.home &&
+        creep.getActiveBodyparts(MOVE) > 0) {
+      creep.moveTo(new RoomPosition(waitingPosition.x, waitingPosition.y, operation.home),
+        { reusePath: 10, maxRooms: 1, range: 0 });
+    } else if (distance(creep.pos, tile) > 1 && creep.getActiveBodyparts(MOVE) > 0) {
+      creep.moveTo(tile, { reusePath: 10, maxRooms: 1, range: 1 });
+    }
     return false;
   }
+  if (creep.getActiveBodyparts(WORK) === 0 || creep.getActiveBodyparts(CARRY) === 0) return false;
   if (distance(creep.pos, tile) > 0) {
     creep.moveTo(tile, { reusePath: 10, maxRooms: 1, range: 0 });
     return false;

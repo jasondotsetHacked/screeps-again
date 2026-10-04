@@ -129,7 +129,10 @@ test('miner and hauler requests have unique deterministic source scopes and norm
   const state = observeColony(f.room);
   // Explicitly satisfy the two-source target for this pure request composition.
   state.population.effectiveWorkers = state.population.target;
-  const requests = requestSourcePopulation(observeSourceOperations(state), [], []);
+  const ops = observeSourceOperations(state);
+  const startup = requestSourcePopulation(ops, [], []);
+  const miners = [f.specialist('miner', 'a'), f.specialist('miner', 'b', second.id)];
+  const requests = [...startup, ...requestSourcePopulation(ops, miners, [])];
   assert.equal(requests.length, 4); assert.equal(new Set(requests.map((r) => r.id)).size, 4);
   assert.deepEqual(new Set(requests.map((r) => r.identity.operationId)), new Set(['source:source-a', `source:${second.id}`]));
   const worker = requestWorkerPopulation({ home: f.room.name, population: { ...state.population, effectiveWorkers: 3 },
@@ -141,6 +144,7 @@ test('miner and hauler requests have unique deterministic source scopes and norm
 for (const kind of ['miner', 'hauler'] as const) {
   test(`${kind} aging replacement includes spawn and travel lead; live/spawning body counted once`, () => {
     const f = logisticsFixture(); const o = operations(f)[0]; const c = f.specialist(kind);
+    const support = kind === 'hauler' ? f.specialist('miner', 'support') : undefined;
     c.ticksToLive = specialistLead(o, kind) + 1;
     const requests = () => requestSourcePopulation([o], Object.values(Game.creeps), []);
     assert.equal(requests().some((r) => r.identity.kind === kind), false);
@@ -150,7 +154,7 @@ for (const kind of ['miner', 'hauler'] as const) {
     const spawning = [{ name: c.name, memory: c.memory }, { name: c.name, memory: c.memory }];
     const count = countPopulation({ identity: c.memory as Required<CreepIdentity>, creeps: [c], spawning, replacementLead: 500 });
     assert.deepEqual(count, { live: 0, spawning: 1, aging: 0, effective: 1 });
-    assert.equal(requestSourcePopulation([o], [c], spawning).some((r) => r.identity.kind === kind), false);
+    assert.equal(requestSourcePopulation([o], support ? [c, support] : [c], spawning).some((r) => r.identity.kind === kind), false);
   });
 }
 

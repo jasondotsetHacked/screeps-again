@@ -104,10 +104,11 @@ export function ensureSourceContainers(
     if (placed >= maxNew) break;
 
     const first = tiles.get(source.id);
-    // Even unusable adjacent buffers/sites prevent duplicate construction.
+    if (!first?.placeable || !first.walkable || first.containerId || first.siteId || first.routeTicks === undefined) continue;
+    // A nearby source's assigned buffer does not satisfy this source. Only a
+    // container/site on the exact assigned tile prevents duplicate placement.
     if ([...structures, ...sites].some((s) => s.structureType === STRUCTURE_CONTAINER &&
-      Math.max(Math.abs(s.pos.x - source.pos.x), Math.abs(s.pos.y - source.pos.y)) <= 1)) continue;
-    if (!first?.placeable || !first.walkable) continue;
+      s.pos.x === first.x && s.pos.y === first.y)) continue;
 
     if (
       room.createConstructionSite(

@@ -8,6 +8,7 @@ export interface SourceTile extends WorkPosition {
   placeable: boolean;
   containerId?: string;
   siteId?: string;
+  routeTicks?: number;
 }
 
 export function localSourceId(sourceId: string): string { return `source:${sourceId}`; }
@@ -86,15 +87,42 @@ export function specialistLead(operation: SourceOperation, kind: 'miner' | 'haul
   return body.length * CREEP_SPAWN_TIME + operation.travelTicks * (kind === 'miner' ? 2 : 1) + 50;
 }
 
+export interface MinerCandidate {
+  name: string; pos: WorkPosition; work: number; carry: number; move: number;
+  spawning: boolean; ticksToLive?: number;
+}
+
+export function primaryMiner(operation: SourceOperation | undefined, creeps: readonly MinerCandidate[],
+  canYield: boolean): string | undefined {
+  if (!operation?.tile || !operation.ready) return undefined;
+  const onTile = (c: MinerCandidate) => c.pos.roomName === operation.home && distance(c.pos, operation.tile!) === 0;
+  const usable = creeps.filter((c) => !c.spawning && c.pos.roomName === operation.home &&
+    c.work > 0 && c.carry > 0 && (onTile(c) || c.move > 0));
+  // An immobile occupant cannot vacate safely. Keep useful mining on that tile
+  // until it expires; worker fallback covers any lost WORK throughput.
+  const pinned = creeps.filter((c) => !c.spawning && onTile(c) && (c.move === 0 || !canYield))
+    .sort((a, b) => (a.ticksToLive ?? Infinity) - (b.ticksToLive ?? Infinity) || a.name.localeCompare(b.name))[0];
+  if (pinned) return pinned.name;
+  return usable.sort((a, b) => Number(b.work * HARVEST_POWER >= operation.income) -
+    Number(a.work * HARVEST_POWER >= operation.income) || Number(onTile(b)) - Number(onTile(a)) ||
+    (a.ticksToLive ?? Infinity) - (b.ticksToLive ?? Infinity) || a.name.localeCompare(b.name))[0]?.name;
+}
+
 export function requestSourcePopulation(operations: readonly SourceOperation[],
   creeps: readonly PopulationCreep[], spawning: readonly SpawningCreep[]): PopulationRequest[] {
   const requests: PopulationRequest[] = [];
   for (const operation of operations) {
     if (!operation.enabled) continue;
+    const minerCount = countPopulation({ identity: { kind: 'miner', home: operation.home, operationId: operation.id },
+      creeps, spawning, replacementLead: specialistLead(operation, 'miner') });
     for (const kind of ['miner', 'hauler'] as const) {
+      // Build the producer's support chain intentionally: hauling starts only
+      // once its miner is effective (including a body currently spawning).
+      if (kind === 'hauler' && minerCount.effective === 0) continue;
       const identity = { kind, home: operation.home, operationId: operation.id };
       const lead = specialistLead(operation, kind);
-      const count = countPopulation({ identity, creeps, spawning, replacementLead: lead });
+      const count = kind === 'miner' ? minerCount
+        : countPopulation({ identity, creeps, spawning, replacementLead: lead });
       const target = kind === 'miner' ? 1 : operation.haulers;
       if (count.effective >= target) continue;
       requests.push({ id: `${operation.home}:${operation.id}:${kind}`, identity, priority: 'logistics',
@@ -103,5 +131,8 @@ export function requestSourcePopulation(operations: readonly SourceOperation[],
         explanation: `[spawn] ${operation.home} ${kind} ${operation.id} ${count.effective + 1}/${target}; income=${operation.income}; travel=${operation.travelTicks}; lead=${lead}` });
     }
   }
-  return requests;
+  // Maintain established chains before adding new specialist populations.
+  // Worker requests are composed separately and retain all survival priorities.
+  const replacements = requests.filter((request) => request.reason === 'replacement');
+  return replacements.length ? replacements : requests;
 }
