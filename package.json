@@ -39,6 +39,7 @@
     "local:resume": "node tools/local-screeps/lab.mjs resume",
     "local:baseline": "node tools/local-screeps/lab.mjs baseline",
     "local:reset": "node tools/local-screeps/lab.mjs reset",
+    "local:player-setup": "node tools/local-screeps/lab.mjs player-setup",
     "local:seed": "node --import tsx tools/local-screeps/seed.mjs"
   },
   "dependencies": {
