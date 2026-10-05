@@ -320,6 +320,9 @@ async function playerSetup(confirm) {
   if (!interactiveSteamConfigured(env)) {
     throw new Error('SCREEPS_LOCAL_STEAM_KEY must contain a real Steam Web API key before player setup. The offline placeholder cannot authenticate Steam/OpenID.');
   }
+  if (process.env.SCREEPS_LOCAL_API_TOKEN?.trim()) {
+    throw new Error('Clear the shell-level SCREEPS_LOCAL_API_TOKEN before player setup; the command can clear only .env.local credentials safely.');
+  }
 
   await stop();
   await mkdir(resolve(lab, 'backups'), { recursive: true });
