@@ -27,8 +27,9 @@ There is no remote-host escape hatch.
   (the Desktop development with C++ workload). The launcher compiles them.
   Bootstrap uses existing tools; it does **not** install machine-wide build
   tools. If compilation fails, install these explicitly and rerun bootstrap.
-- Steam/Screeps client and a Steam Web API key are **optional** for the initial
-  API-only lab; see the client section.
+- Steam/Screeps client and a Steam Web API key are **optional** for an
+  API-only lab. A real Steam Web API key is required for a player-owned
+  Steam/OpenID session in the Steamless browser client; see the player section.
 
 In PowerShell, use `npm.cmd` in place of `npm` if script execution policy
 blocks `npm.ps1`. No execution-policy change is needed.
@@ -70,13 +71,22 @@ The first bootstrap performs a controlled restart after storage upgrades finish:
 the upstream launcher's fixed three-second head start can otherwise leave
 engine modules waiting on their first storage connection. It finishes paused.
 
-The pinned auth mod's supported `/api/register/submit` endpoint can create
-`local-bot` without Steam. Bootstrap gives it a random one-time registration
-password, discards that password, and obtains a persistent token using
-`auth.createAuthToken`. Only the token is saved in ignored `.env.local`.
+Without a real `SCREEPS_LOCAL_STEAM_KEY`, the pinned auth mod's supported
+`/api/register/submit` endpoint creates `local-bot` without Steam. Bootstrap
+gives it a random one-time registration password, discards that password, and
+obtains a persistent token using `auth.createAuthToken`. Only the token is
+saved in ignored `.env.local`.
+
+If a real `SCREEPS_LOCAL_STEAM_KEY` is already present and there is no selected
+local API token, bootstrap deliberately **does not** create `local-bot`. It
+leaves the server paused so a Steam/OpenID account can be created first, then
+selected with `npm run local:auth -- <username>`. This prevents the common
+"the bot is another player" split when the lab is meant to be watched through
+Steamless.
+
 Bootstrap is resumable: it preserves existing config, world, account, and valid
 credentials. After replacing/deleting a world, an old token may no longer work;
-run `npm run local:auth -- local-bot` to generate a matching token.
+run `npm run local:auth -- <username>` to generate a matching token.
 
 `local:seed` pauses simulation and places Spawn1 in the bundled neutral room
 **W8N3**, using the repo's existing initial-spawn planner. Pass another room
@@ -172,31 +182,71 @@ backups as private credentials-bearing files. Restore only your own trusted
 backups: the upstream format contains file paths and is not an untrusted archive
 import boundary.
 
-## Connect the Screeps client (optional)
+## Player-owned lab and Steamless
 
-The API-only account above is sufficient for deployment and bot execution.
-For the Steam desktop client, obtain your own
-[Steam Web API key](https://steamcommunity.com/dev/apikey) and add
-`SCREEPS_LOCAL_STEAM_KEY=...` to **`.env.local`**. Then:
+The API-only `local-bot` account is sufficient for unattended deployment, but
+a Steamless browser session authenticates through Steam/OpenID. Those are
+different users unless the lab is intentionally initialized around the
+Steam-linked player. For a visual simulation lab, the recommended end state is:
 
-1. Run `local:stop`, `local:bootstrap` to apply it, and `local:resume`.
-2. In Screeps, choose **Private Server**, host **127.0.0.1**, port **21025**,
-   server password **blank**. Connect once to create your Steam-linked account.
-3. Run `npm run local:auth -- YourLocalUsername`, then `npm run deploy:local`.
-   Place your first spawn in the client, or use `local:seed` with a neutral
-   room if the account is empty. Save a new baseline for this account.
+```text
+Steamless player = local deployment account = room owner
+```
 
-That first client connection is the single manual account checkpoint **only if
-you choose a Steam-linked account**. The rest is resumable. The API-only bot
-account and Steam account are separate; `local:auth` selects the deployment
-account. No account password needs to be stored.
+Obtain your own
+[Steam Web API key](https://steamcommunity.com/dev/apikey) and add it to the
+ignored **`.env.local`**:
+
+```text
+SCREEPS_LOCAL_STEAM_KEY=your-key-here
+```
+
+On a brand-new lab, set the key before `local:bootstrap`. Bootstrap will start
+the server but skip creation of `local-bot`. In Steamless, open the local
+server, choose **Sign Out** if the client shows Guest, then click the Steam icon
+and complete Steam sign-in. After the server creates that user:
+
+```powershell
+npm run local:auth -- YourLocalUsername
+npm run local:seed
+npm run local:stop
+npm run local:baseline
+npm run local:start
+npm run deploy:local
+npm run local:resume
+```
+
+If the lab was already seeded under `local-bot`, use the explicit conversion
+command instead of trying to make two owners coexist:
+
+```powershell
+npm run local:player-setup -- --confirm
+```
+
+Player setup normally stops and persists the current server, saves a timestamped
+launcher recovery backup, archives the old `baseline.gz`, removes only the
+disposable private-server runtime, clears only the local username/API token,
+and bootstraps a fresh paused runtime with the existing Steam key. It preserves
+the verified launcher, caches, archived backups, code-branch setting, and Steam
+key. It never reads or changes `.env`, MMO credentials, AWS state, or production
+Screeps.
+
+After `local:player-setup` finishes, complete the Steamless sign-in checkpoint,
+then run `local:auth`, `local:seed`, `local:stop`, and `local:baseline` as
+shown above. The manual Steam sign-in is intentionally not automated or stored.
+Future resets restore the player-owned baseline, so the room, bot code, Memory,
+and browser identity all refer to the same local player.
+
+For the Steam desktop client, the same account model applies: choose **Private
+Server**, host **127.0.0.1**, port **21025**, server password **blank**, sign in,
+then select that username with `local:auth`.
 
 The launcher insists on a nonempty Steam key even for API-only operation, so
 the default template uses an explicit **offline placeholder, not a secret**.
 The backend retries Steam validation and logs HTTP 403 messages without a real
-key; these do not block the local API or runner. Steam ticket login requires
-a real key. This upstream behavior can grow backend logs during long runs;
-stop and remove old logs between experiments.
+key; these do not block the local API or runner. Steam/OpenID login requires a
+real key. This upstream behavior can grow backend logs during long runs; stop
+and remove old logs between experiments.
 
 ## Data location and removal
 
@@ -210,6 +260,8 @@ stop and remove old logs between experiments.
 - `.local/screeps/backups/`: private snapshots.
 - `.local/screeps/process.json` and launcher logs: process management.
 - `.env.local`: local API token, branch, URL, username, optional Steam key.
+  `local:player-setup` preserves the Steam key and non-identity settings while
+  clearing the old local username/token.
 
 All `.local/` and `.env.local` content is ignored. To reclaim **all** local
 server data from this checkout:
