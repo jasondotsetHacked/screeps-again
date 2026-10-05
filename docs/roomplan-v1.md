@@ -52,8 +52,15 @@ coordinates are visible before any construction occurs.
 
 ## Runtime and brownfield policy
 
-`observeRoomFacts` only normalizes observations. Construction commits one
-versioned plan in `Memory.roomPlans[roomName]`, then uses pure `reconcilePlan`
+`observeRoomFacts` only normalizes observations. Automatic commitment requires
+`feasibility.complete === true` and no failure reasons. Incomplete candidates are
+logged, never stored and never reconciled into sites. Generation failures have a
+1000-tick heap-only retry cooldown so an unplannable room does not repeatedly
+spend planning CPU; a global reset clears that cooldown. Explicit preview remains
+available, and an explicit commit uses the same completeness gate. There is no
+partial-plan override in v1. A failed explicit replan preserves the old commitment.
+
+Construction commits one versioned intent in `Memory.roomPlans[roomName]`, then uses pure `reconcilePlan`
 to find missing legal structures. Every created site comes from that plan.
 Storage is established at RCL4, early extensions and towers retain progression
 priority, then buffers/core infrastructure. Extensions and towers nearer Spawn1
@@ -62,9 +69,29 @@ run on 100-tick intervals while non-road sites are absent. Runtime limits use
 `CONTROLLER_STRUCTURES`; the shared table supports ordinary offline tests.
 
 The first plan is delayed when the CPU bucket is below 3000. Thereafter only
-intent is persisted: coordinates, modules, reservations, routes, dispositions
-and scoring. Terrain grids, pathfinding heaps and tick observations are not
-stored. Host fixture generation took roughly 130–300 ms per room during review;
+compact intent is persisted by `shared/roomPlan/intent.ts` (`storageVersion: 1`).
+Non-road structures use tuples `[tileIndex, typeIndex, moduleIndex, minRcl,
+priority, flags]`; reservations use `[tileIndex, moduleIndex, purposeIndex,
+futureTypeIndex?]`. `tileIndex = y * 50 + x`; flags encode source ownership and
+transitional status. Dictionary ordering belongs to the codec version. Roads
+are a unique list of tile indices; their shared network/RCL2/priority metadata
+is reconstructed on read. Core relationships, source/controller logistics,
+module identities, score and warnings remain explicit durable intent.
+
+The full planner result still includes observed asset dispositions and logical
+route traces for previews/offline analysis. Neither field is copied into
+`Memory.roomPlans`. Terrain grids, pathfinding heaps and tick observations are
+also excluded. Decoded intent is cached in the heap and construction only decodes
+on its interval or when the visual is enabled. Source observation reads the small
+source intent directly. Complete legacy full plans compact on first use without
+changing identity or coordinates; unsupported or incomplete legacy plans pause
+construction and require explicit replanning.
+
+The seven representative fixtures serialize to roughly 6.0–6.3 KiB per stored
+plan, versus 33–35 KiB for the full result. Tests enforce an 8 KiB budget, an exact
+allowed field set, unique road encoding, codec round-trip fidelity and identical
+RCL1–8 reconciliation. Inflating debug observations/routes cannot increase the
+stored shape or size. Host fixture generation took roughly 130–300 ms per room during review;
 this is not a live Screeps CPU benchmark. No deployment was performed.
 
 RCL progression, newly completed buildings, population losses and global resets
@@ -81,8 +108,9 @@ structure limits. Important built core assets constrain core adoption. If they
 cannot fit the manager stamp, the planner returns an incomplete plan and warns
 instead of planning destructive migration. This phase neither destroys
 completed structures nor automatically removes conflicting construction sites.
-Missing safe modules remain explicit feasibility reasons; legal partial intent
-can still support early construction and worker recovery.
+Missing safe modules remain explicit feasibility reasons and pause construction.
+Worker execution, spawning and existing source logistics remain independent of
+that optional construction pause.
 
 ## Inspection and explicit replan
 
@@ -92,8 +120,9 @@ The console helpers are installed by the kernel:
 roomPlan.show('E1S1')       // full committed future RoomVisual on every tick
 roomPlan.hide('E1S1')
 roomPlan.preview('E1S1')    // compute a candidate; leave committed intent unchanged
-roomPlan.replan('E1S1')     // explicitly replace intent; does not remove any assets
-Memory.roomPlans.E1S1      // identity, score, feasibility, warnings, full intent
+roomPlan.replan('E1S1')     // commit a complete replacement only; never remove assets
+roomPlan.inspect('E1S1')    // readable committed intent, decoded from compact storage
+Memory.roomPlans.E1S1      // compact storage format; use helpers rather than editing tuples
 ```
 
 The overlay labels core storage/terminal/factory/link, manager, extensions,
@@ -121,6 +150,7 @@ The normal `npm test` / `npm run check` path includes RoomPlan regressions:
 | Future space / completeness | Coordinate validity and uniqueness; reservation compatibility; 60 extensions, six towers, three spawns, core/source/controller intent and ten lab reservations |
 | Roads | Trunk reuse beyond the common hub; unique coordinates; stationary tiles excluded; bounded representative road count |
 | Construction | Live simulated RCL2–8 buildout checks every created site against committed intent, budget, limits and future reservations |
+| Commit gate / Memory | Incomplete automatic/explicit candidates never persist or build; complete legacy migration; codec reload and scheduling fidelity; strict shape and 8 KiB serialized budget |
 | Brownfield / recovery | Source/container adoption, transitional controller, harmless legacy assets, conflict preservation, JSON Memory reload and blocked miner tile fallback |
 | Debugging | Overlay call assertions cover every required category; offline generated representative SVGs |
 | Change control | Dedicated `exp/roomplan-v1`; draft PR only; no merge, deployments, ranking/configuration or infrastructure edits |

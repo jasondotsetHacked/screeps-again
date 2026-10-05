@@ -9,7 +9,7 @@ export interface LocalLayout {
 export function layoutReservations(layout: LocalLayout): WorkPosition[] {
   return Object.values(layout).filter((p): p is WorkPosition => Boolean(p));
 }
-export function projectLocalLayout(plan: RoomPlan): LocalLayout {
+export function projectLocalLayout(plan: Pick<RoomPlan, 'roomName' | 'core' | 'controller'>): LocalLayout {
   const pos = (p: { x: number; y: number } | undefined): WorkPosition | undefined => p ? { ...p, roomName: plan.roomName } : undefined;
   return { storage: pos(plan.core?.storage), coreLink: pos(plan.core?.link), terminal: pos(plan.core?.terminal),
     coreAccess: pos(plan.core?.manager), controllerBuffer: pos(plan.controller?.container),

@@ -3,7 +3,7 @@ import type { RoomPlan } from '../../shared/roomPlan/types';
 const labels: Record<string, string> = { storage: 'S', terminal: 'T', factory: 'F', link: 'L', spawn: 'SP',
   tower: 'TW', extension: 'E', container: 'C', powerSpawn: 'PS', observer: 'O', nuker: 'N' };
 /** Full future intent, visible at any RCL. Colors represent modules, letters structures. */
-export function renderRoomPlan(visual: Pick<RoomVisual, 'circle' | 'rect' | 'text' | 'line'>, plan: RoomPlan): void {
+export function renderRoomPlan(visual: Pick<RoomVisual, 'circle' | 'rect' | 'text' | 'line'>, plan: Omit<RoomPlan, 'assets' | 'routes'>): void {
   const color = (module: string) => module === 'core' ? '#ffc857' : module.startsWith('source:') ? '#63d471' :
     module === 'controller' ? '#75baff' : module === 'labs' ? '#ce9dff' : '#e0e0e0';
   for (const r of plan.reservations) {

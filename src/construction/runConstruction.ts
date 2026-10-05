@@ -8,7 +8,8 @@ import { projectLocalLayout, type LocalLayout } from './localLayout';
 import { committedRoomPlan, ensureRoomPlan, firstSpawn, observePlanAssets, observeRoomFacts } from './roomPlanRuntime';
 import { renderRoomPlan } from './roomPlanVisual';
 
-function createPlannedSite(room: Room, plan: RoomPlan, s: PlannedStructure): number {
+function createPlannedSite(room: Room, plan: Omit<RoomPlan, 'assets' | 'routes'>, s: PlannedStructure): number {
+  if (!plan.feasibility.complete || plan.feasibility.reasons.length) return 0;
   if (!plan.structures.some((p) => p.x === s.x && p.y === s.y && p.type === s.type)) return 0;
   const assets = observePlanAssets(room);
   const at = assets.filter((a) => a.x === s.x && a.y === s.y);
@@ -48,8 +49,10 @@ export function runConstruction(room: Room, operations?: readonly SourceOperatio
   if (!room.controller?.my) return;
   const spawn = firstSpawn(room);
   if (!spawn) return;
-  const current = committedRoomPlan(room.name);
-  if (current && Memory.roomPlanVisuals?.[room.name]) renderRoomPlan(room.visual, current);
+  if (Memory.roomPlanVisuals?.[room.name]) {
+    const current = committedRoomPlan(room.name);
+    if (current) renderRoomPlan(room.visual, current);
+  }
   if (Game.time % 25 !== 0) return;
   const plan = ensureRoomPlan(room, spawn, operations);
   if (!plan) return;

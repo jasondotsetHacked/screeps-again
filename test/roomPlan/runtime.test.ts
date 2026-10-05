@@ -2,15 +2,17 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { logisticsFixture } from '../helpers/logistics';
 import { position } from '../helpers/colony';
-import { runConstruction, ensureLayoutSite } from '../../src/construction/runConstruction';
+import { runConstruction, ensureLayoutSite, ensureSourceContainers } from '../../src/construction/runConstruction';
 import { committedRoomPlan, ensureRoomPlan, replanRoom } from '../../src/construction/roomPlanRuntime';
 import { renderRoomPlan } from '../../src/construction/roomPlanVisual';
 import { observeSourceOperations } from '../../src/operations/observeSources';
 import { observeColony } from '../../src/colony/colonyState';
 import { structureLimits } from '../../shared/roomPlan/limits';
+import { planRoom } from '../../shared/roomPlan/planRoom';
+import { roomFacts } from './fixtures';
 
-function fixture() {
-  const f = logisticsFixture(); f.secondSource();
+function fixture(roomName = 'E25S47') {
+  const f = logisticsFixture({ roomName }); f.secondSource();
   const placed: { x: number; y: number; type: string }[] = [];
   for (const [type, values] of Object.entries(structureLimits)) (CONTROLLER_STRUCTURES as unknown as Record<string, Record<number, number>>)[type] =
     Object.fromEntries(values.map((value, rcl) => [rcl, value]));
@@ -74,13 +76,84 @@ test('unplanned important asset blocks new storage without destroy, unsafe site 
 test('unsupported version and changed Spawn1 pause construction; explicit preview does not commit', () => {
   const f = fixture(), p = ensureRoomPlan(f.room, f.spawn)!;
   Game.time = 100; f.controller.level = 8;
-  (p as unknown as { version: number }).version = 2;
+  const stored = Memory.roomPlans![f.room.name];
+  (stored as unknown as { version: number }).version = 2;
   runConstruction(f.room); assert.equal(f.placed.length, 0);
-  p.version = 1; f.spawn.pos = position(12, 11);
+  stored.version = 1;
+  assert.ok('storageVersion' in stored);
+  (stored as unknown as { storageVersion: number }).storageVersion = 2;
+  runConstruction(f.room); assert.equal(f.placed.length, 0);
+  stored.storageVersion = 1;
+  stored.roomName = 'E99S99';
+  runConstruction(f.room); assert.equal(f.placed.length, 0);
+  stored.roomName = f.room.name;
+  f.spawn.pos = position(12, 11);
   runConstruction(f.room); assert.equal(f.placed.length, 0);
   const preview = replanRoom(f.room.name);
   assert.notEqual(preview.id, p.id); assert.equal(committedRoomPlan(f.room.name)!.id, p.id);
   assert.equal(replanRoom(f.room.name, true).id, committedRoomPlan(f.room.name)!.id);
+});
+test('incomplete automatic candidate is reported, never persisted and never built by any construction entry point', (t) => {
+  const log = t.mock.method(console, 'log', () => {});
+  const f = fixture('E31S31'); f.controller.level = 4; Game.time = 100;
+  // Leave a playable source/spawn/controller area, but too little space for a mature city.
+  f.room.getTerrain = (() => ({ get: (x: number, y: number) =>
+    x >= 3 && x <= 15 && y >= 3 && y <= 15 ||
+    x >= 18 && x <= 22 && y >= 18 && y <= 22 ||
+    x >= 28 && x <= 32 && y >= 28 && y <= 32 ||
+    x >= 10 && x <= 30 && Math.abs(x - y) <= 1 ? 0 : 1 })) as unknown as Room['getTerrain'];
+  const candidate = replanRoom(f.room.name);
+  assert.equal(candidate.feasibility.complete, false);
+  assert.ok(candidate.structures.some((s) => s.type === 'extension'), 'A partial plan would have irreversible early construction');
+  runConstruction(f.room);
+  assert.equal(Memory.roomPlans?.[f.room.name], undefined);
+  assert.equal(committedRoomPlan(f.room.name), undefined);
+  assert.deepEqual(f.placed, []);
+  assert.ok(log.mock.calls.some((c) => String(c.arguments[0]).includes('rejected') && String(c.arguments[0]).includes('construction paused')));
+  assert.equal(ensureLayoutSite(f.room, position(candidate.core!.storage.x, candidate.core!.storage.y), STRUCTURE_STORAGE), 0);
+  assert.equal(ensureSourceContainers(f.room, f.spawn, 4), 0);
+  assert.throws(() => replanRoom(f.room.name, true), /incomplete/);
+  assert.equal(Memory.roomPlans?.[f.room.name], undefined);
+  assert.deepEqual(f.placed, []);
+});
+test('rejected automatic generation is retried only after cooldown; explicit preview remains available', () => {
+  const f = fixture('E32S32'); Game.time = 100;
+  f.room.getTerrain = (() => ({ get: () => 1 })) as unknown as Room['getTerrain'];
+  assert.equal(ensureRoomPlan(f.room, f.spawn), undefined);
+  f.room.getTerrain = (() => ({ get: () => 0 })) as unknown as Room['getTerrain'];
+  Game.time = 125;
+  const scans = [...f.calls];
+  assert.equal(ensureRoomPlan(f.room, f.spawn), undefined);
+  assert.deepEqual([...f.calls], scans, 'Failed full planning must not consume CPU every construction interval');
+  assert.equal(replanRoom(f.room.name).feasibility.complete, true);
+  assert.equal(Memory.roomPlans?.[f.room.name], undefined);
+  Game.time = 1100;
+  assert.ok(ensureRoomPlan(f.room, f.spawn));
+});
+test('incomplete explicit replan preserves previously committed intent byte for byte', () => {
+  const f = fixture(), original = ensureRoomPlan(f.room, f.spawn)!;
+  const bytes = JSON.stringify(Memory.roomPlans![f.room.name]);
+  f.room.getTerrain = (() => ({ get: () => 1 })) as unknown as Room['getTerrain'];
+  assert.equal(replanRoom(f.room.name).feasibility.complete, false);
+  assert.throws(() => replanRoom(f.room.name, true), /incomplete/);
+  assert.equal(JSON.stringify(Memory.roomPlans![f.room.name]), bytes);
+  assert.equal(committedRoomPlan(f.room.name)!.id, original.id);
+});
+test('legacy complete plans compact safely; legacy partial plans remain paused without reinterpretation', () => {
+  const f = fixture('E33S33');
+  const facts = roomFacts(); facts.roomName = f.room.name; facts.spawn1 = { x: f.spawn.pos.x, y: f.spawn.pos.y };
+  const full = planRoom(facts).roomPlan;
+  Memory.roomPlans = { [f.room.name]: full };
+  assert.equal(ensureRoomPlan(f.room, f.spawn)!.id, full.id);
+  const stored = Memory.roomPlans[f.room.name];
+  assert.ok('storageVersion' in stored); assert.ok(!('routes' in stored)); assert.ok(!('assets' in stored));
+  const partial = { ...full, feasibility: { complete: false, reasons: ['labs:no-module-space'] } };
+  Memory.roomPlans[f.room.name] = partial;
+  const bytes = JSON.stringify(partial); Game.time = 100; f.controller.level = 4;
+  runConstruction(f.room);
+  assert.equal(committedRoomPlan(f.room.name), undefined);
+  assert.equal(JSON.stringify(Memory.roomPlans[f.room.name]), bytes);
+  assert.deepEqual(f.placed, []);
 });
 test('blocked committed source tile suspends source operation instead of choosing a competing position', () => {
   const f = fixture(), p = ensureRoomPlan(f.room, f.spawn)!;

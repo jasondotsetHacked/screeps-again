@@ -151,7 +151,7 @@ test('planner compiles without Screeps types and has no runtime/API dependency g
     const config = path.join(dir, 'tsconfig.json');
     fs.writeFileSync(config, JSON.stringify({ compilerOptions: { noEmit: true, strict: true, types: [],
       target: 'ES2020', module: 'ESNext', moduleResolution: 'Bundler' },
-      files: ['shared/roomPlan/planRoom.ts', 'shared/roomPlan/reconcile.ts'].map((f) => path.resolve(f)) }));
+      files: ['shared/roomPlan/planRoom.ts', 'shared/roomPlan/reconcile.ts', 'shared/roomPlan/intent.ts'].map((f) => path.resolve(f)) }));
     const result = spawnSync(process.execPath, ['node_modules/typescript/bin/tsc', '-p', config], { encoding: 'utf8' });
     assert.equal(result.status, 0, result.stdout + result.stderr);
     for (const name of fs.readdirSync('shared/roomPlan').filter((f) => f.endsWith('.ts'))) {

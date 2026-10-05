@@ -3,6 +3,7 @@ import type { RoomAsset, RoomFacts, RoomPlan } from '../../shared/roomPlan/types
 import type { SourceOperation } from '../operations/sourceOperation';
 import { chooseSourceTiles } from '../operations/observeSources';
 import { selectSpawnAnchor } from './spawnAnchor';
+import { acceptablePlan, readRoomPlan, storeRoomPlan, type RoomPlanIntent, type StoredRoomPlan } from '../../shared/roomPlan/intent';
 
 export function observePlanAssets(room: Room): RoomAsset[] {
   const normalize = (s: Structure | ConstructionSite, site = false): RoomAsset => ({
@@ -33,24 +34,46 @@ export function observeRoomFacts(room: Room, spawn: StructureSpawn, operations?:
     sources: sources.map((s) => ({ id: s.id, x: s.pos.x, y: s.pos.y })),
     ...(mineral ? { mineral: { x: mineral.pos.x, y: mineral.pos.y } } : {}), assets: observePlanAssets(room), sourceBuffers: buffers };
 }
-export function committedRoomPlan(roomName: string): RoomPlan | undefined { return Memory.roomPlans?.[roomName]; }
+const decoded = new WeakMap<StoredRoomPlan, RoomPlanIntent>();
+const rejected = new Map<string, { tick: number; anchor: string }>();
+export function committedRoomPlan(roomName: string): RoomPlanIntent | undefined {
+  const stored = Memory.roomPlans?.[roomName];
+  if (!stored || stored.roomName !== roomName || !acceptablePlan(stored)) return undefined;
+  if (!('storageVersion' in stored)) return readRoomPlan(storeRoomPlan(stored));
+  if (stored.storageVersion !== 1) return undefined;
+  let intent = decoded.get(stored);
+  if (!intent) { intent = readRoomPlan(stored); decoded.set(stored, intent); }
+  return intent;
+}
 /** No automatic invalidation on RCL, new sites, missing creeps or global resets. */
-export function ensureRoomPlan(room: Room, spawn: StructureSpawn, operations?: readonly SourceOperation[]): RoomPlan | undefined {
-  const current = committedRoomPlan(room.name);
-  if (current) {
-    if (current.version !== 1 || current.algorithm !== 'hybrid-v1' || current.spawn1.x !== spawn.pos.x || current.spawn1.y !== spawn.pos.y) {
-      if (Game.time % 100 === 0) console.log(`[roomplan] ${room.name} version/anchor mismatch; construction paused; explicit replan required`);
+export function ensureRoomPlan(room: Room, spawn: StructureSpawn, operations?: readonly SourceOperation[]): RoomPlanIntent | undefined {
+  const stored = Memory.roomPlans?.[room.name];
+  if (stored) {
+    if (!acceptablePlan(stored) || stored.roomName !== room.name || stored.spawn1.x !== spawn.pos.x || stored.spawn1.y !== spawn.pos.y ||
+      'storageVersion' in stored && stored.storageVersion !== 1) {
+      if (Game.time % 100 === 0) console.log(`[roomplan] ${room.name} unsupported, incomplete or changed-anchor plan; construction paused; explicit replan required`);
       return undefined;
     }
-    return current;
+    // Safe one-time migration of complete v1 plans; rejected legacy partial plans stay paused.
+    if (!('storageVersion' in stored)) Memory.roomPlans![room.name] = storeRoomPlan(stored);
+    return committedRoomPlan(room.name);
   }
   // A one-time mature layout is optional work; postpone when recovery has drained CPU reserve.
   if (Game.cpu?.bucket !== undefined && Game.cpu.bucket < 3000) return undefined;
+  const anchor = `${spawn.pos.x},${spawn.pos.y}`;
+  const failure = rejected.get(room.name);
+  if (failure && failure.anchor === anchor && Game.time >= failure.tick && Game.time < failure.tick + 1000) return undefined;
   const result = planRoom(observeRoomFacts(room, spawn, operations));
+  if (!acceptablePlan(result.roomPlan)) {
+    rejected.set(room.name, { tick: Game.time, anchor });
+    console.log(`[roomplan] ${room.name} rejected ${result.roomPlan.id}; construction paused: ${[...result.feasibility.reasons, ...result.warnings].join('; ')}`);
+    return undefined;
+  }
   Memory.roomPlans ??= {};
-  Memory.roomPlans[room.name] = result.roomPlan;
+  Memory.roomPlans[room.name] = storeRoomPlan(result.roomPlan);
+  rejected.delete(room.name);
   console.log(`[roomplan] ${room.name} committed ${result.roomPlan.id} complete=${result.feasibility.complete} score=${result.score.total} ${[...result.feasibility.reasons, ...result.warnings].join('; ')}`);
-  return result.roomPlan;
+  return committedRoomPlan(room.name);
 }
 /** Console helper: preview first; commit only on explicit true. Never demolishes. */
 export function replanRoom(roomName: string, commit = false): RoomPlan {
@@ -58,7 +81,11 @@ export function replanRoom(roomName: string, commit = false): RoomPlan {
   const spawn = room && firstSpawn(room);
   if (!room?.controller?.my || !spawn) throw new Error('Owned visible room with spawn required');
   const plan = planRoom(observeRoomFacts(room, spawn)).roomPlan;
-  if (commit) { Memory.roomPlans ??= {}; Memory.roomPlans[roomName] = plan; }
+  if (commit) {
+    const stored = storeRoomPlan(plan); // Same gate for explicit commits; no partial-plan override in v1.
+    Memory.roomPlans ??= {}; Memory.roomPlans[roomName] = stored;
+    rejected.delete(roomName);
+  }
   return plan;
 }
 
@@ -67,6 +94,7 @@ export function installRoomPlanDebug(): void {
   if (debugInstalled) return;
   Object.assign(globalThis, { roomPlan: {
     preview: (roomName: string) => replanRoom(roomName),
+    inspect: (roomName: string) => committedRoomPlan(roomName),
     replan: (roomName: string) => replanRoom(roomName, true),
     show: (roomName: string) => { Memory.roomPlanVisuals ??= {}; Memory.roomPlanVisuals[roomName] = true; },
     hide: (roomName: string) => { if (Memory.roomPlanVisuals) delete Memory.roomPlanVisuals[roomName]; }
