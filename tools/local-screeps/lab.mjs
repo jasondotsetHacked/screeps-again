@@ -2,7 +2,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile, rename, copyFile, open, rm } from 'node:fs/promises';
 import { spawn, execFile } from 'node:child_process';
-import { promisify } from 'node:util';
+import { parseEnv, promisify } from 'node:util';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { setTimeout as delay } from 'node:timers/promises';
@@ -22,6 +22,7 @@ const hostExecutable = resolve(lab, 'windows-server-host.exe');
 const powershell = resolve(process.env.SystemRoot || 'C:/Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe');
 const baseline = resolve(lab, 'backups/baseline.gz');
 const version = 'v1.17.0';
+const offlineSteamKey = 'offline-local-lab-no-steam-login';
 const hashes = {
   x64: 'de72dbad1d501f1e258f0c673fdb65d5d4f94258e737f3c3e7e5ffde5c07a9b1',
   arm64: 'f37ca663ab3d047da5c43ece93274fddf5c01d0f584295d8a7ac13eefc47dd0c'
@@ -220,13 +221,33 @@ async function stop(force = false) {
   console.log(force ? 'Force-stopped managed local server; unsaved state may be lost.' : 'Stopped local server. Next start remains paused; use local:resume.');
 }
 
-async function writeCredentials(token, username) {
+async function localEnvFile() {
   const file = resolve(root, '.env.local');
-  const env = existsSync(file) ? (await import('node:util')).parseEnv(await readFile(file, 'utf8')) : {};
-  const values = { ...env, SCREEPS_LOCAL_URL: LOCAL_URL, SCREEPS_LOCAL_CODE_BRANCH: env.SCREEPS_LOCAL_CODE_BRANCH || 'local', SCREEPS_LOCAL_USERNAME: username, SCREEPS_LOCAL_API_TOKEN: token };
+  return { file, values: existsSync(file) ? parseEnv(await readFile(file, 'utf8')) : {} };
+}
+
+async function saveLocalEnv(file, values) {
   const text = Object.entries(values).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join('\n') + '\n';
   await writeFile(file, text, { mode: 0o600 });
+}
+
+export function interactiveSteamConfigured(env) {
+  const value = env.SCREEPS_LOCAL_STEAM_KEY?.trim();
+  return Boolean(value && value !== offlineSteamKey);
+}
+
+async function writeCredentials(token, username) {
+  const { file, values: env } = await localEnvFile();
+  const values = { ...env, SCREEPS_LOCAL_URL: LOCAL_URL, SCREEPS_LOCAL_CODE_BRANCH: env.SCREEPS_LOCAL_CODE_BRANCH || 'local', SCREEPS_LOCAL_USERNAME: username, SCREEPS_LOCAL_API_TOKEN: token };
+  await saveLocalEnv(file, values);
   console.log(`Saved persistent local API token for "${username}" to ignored .env.local (token not printed).`);
+}
+
+async function clearLocalIdentity() {
+  const { file, values } = await localEnvFile();
+  delete values.SCREEPS_LOCAL_USERNAME;
+  delete values.SCREEPS_LOCAL_API_TOKEN;
+  await saveLocalEnv(file, values);
 }
 
 async function auth(username = 'local-bot') {
@@ -238,6 +259,21 @@ async function auth(username = 'local-bot') {
 }
 
 async function account() {
+  const env = await deploymentEnv('local');
+  if (env.SCREEPS_LOCAL_API_TOKEN) {
+    try { await localRequest(LOCAL_URL, '/api/auth/me', { token: env.SCREEPS_LOCAL_API_TOKEN }); }
+    catch { throw new Error('Existing local API token was refused. Run npm run local:auth -- <username> to regenerate it for this world; clear any stale SCREEPS_LOCAL_API_TOKEN shell override.'); }
+    return 'selected';
+  }
+  // A real Steam Web API key means the operator intends to use Steam/OpenID
+  // (including the Steamless browser client). Do not silently create a second
+  // API-only owner before the human account has had a chance to sign in.
+  if (interactiveSteamConfigured(env)) {
+    console.log('Steam/OpenID account mode is configured. No API-only local-bot was created.');
+    console.log('Sign in to the local server with Steam, then run npm run local:auth -- <YourLocalUsername>.');
+    return 'interactive-pending';
+  }
+
   const username = 'local-bot';
   const result = await fetch(LOCAL_URL + '/api/register/check-username?username=' + username, { redirect: 'error', signal: AbortSignal.timeout(15_000) });
   if (!result.ok) throw new Error('Could not check local account.');
@@ -249,11 +285,8 @@ async function account() {
     });
     console.log('Created API-only local-bot through screepsmod-auth registration.');
   } else if (check.error !== 'User Exists') throw new Error('Local registration unavailable; see the client/account checkpoint in dev/local-screeps/README.md.');
-  const env = await deploymentEnv('local');
-  if (env.SCREEPS_LOCAL_API_TOKEN) {
-    try { await localRequest(LOCAL_URL, '/api/auth/me', { token: env.SCREEPS_LOCAL_API_TOKEN }); }
-    catch { throw new Error('Existing local API token was refused. Run npm run local:auth -- <username> to regenerate it for this world; clear any stale SCREEPS_LOCAL_API_TOKEN shell override.'); }
-  } else await auth(username);
+  await auth(username);
+  return 'api-only';
 }
 
 async function backup() {
@@ -277,6 +310,40 @@ async function reset(confirm) {
   await runLauncher(['restore', baseline]);
   await start();
   console.log('Restored baseline; simulation is paused. Deploy with deploy:local, then local:resume.');
+}
+
+async function playerSetup(confirm) {
+  if (confirm !== '--confirm') {
+    throw new Error('Player setup replaces the disposable local runtime. Add SCREEPS_LOCAL_STEAM_KEY to .env.local, then use npm run local:player-setup -- --confirm.');
+  }
+  const env = await deploymentEnv('local');
+  if (!interactiveSteamConfigured(env)) {
+    throw new Error('SCREEPS_LOCAL_STEAM_KEY must contain a real Steam Web API key before player setup. The offline placeholder cannot authenticate Steam/OpenID.');
+  }
+
+  await stop();
+  await mkdir(resolve(lab, 'backups'), { recursive: true });
+  const stamp = Date.now();
+  if (existsSync(resolve(runtime, 'db.json')) && existsSync(resolve(runtime, 'config.yml'))) {
+    const recovery = resolve(lab, `backups/before-player-setup-${stamp}.gz`);
+    await runLauncher(['backup', recovery]);
+    console.log(`Saved the current API-only lab as ${recovery}.`);
+  }
+  if (existsSync(baseline)) {
+    const archived = resolve(lab, `backups/baseline-before-player-setup-${stamp}.gz`);
+    await rename(baseline, archived);
+    console.log(`Archived the old baseline as ${archived}.`);
+  }
+
+  // Rebuild only the disposable private-server runtime. Keep the verified
+  // launcher, caches, Steam key, and archived recovery snapshots.
+  await rm(runtime, { recursive: true, force: true });
+  await rm(pidFile, { force: true });
+  await clearLocalIdentity();
+  await bootstrap();
+  console.log('Player-owned lab is ready for the manual Steam/OpenID checkpoint.');
+  console.log('In Steamless: open the local server, Sign Out if shown as Guest, then click the Steam icon.');
+  console.log('After sign-in: npm run local:auth -- <YourLocalUsername>, npm run local:seed, npm run local:stop, npm run local:baseline.');
 }
 
 async function bootstrap() {
@@ -310,8 +377,12 @@ async function bootstrap() {
     await start();
     await writeFile(resolve(runtime, '.lab-initialized'), 'Storage initialized; initial engine reconnect completed.\n');
   }
-  await account();
-  console.log('Bootstrap ready. Next: local:seed, local:stop, local:baseline, local:start, deploy:local, local:resume. See dev/local-screeps/README.md.');
+  const accountMode = await account();
+  if (accountMode === 'interactive-pending') {
+    console.log('Bootstrap ready and paused. Complete Steam/OpenID sign-in, then local:auth, local:seed, local:stop, and local:baseline. See dev/local-screeps/README.md.');
+  } else {
+    console.log('Bootstrap ready. Next: local:seed, local:stop, local:baseline, local:start, deploy:local, local:resume. See dev/local-screeps/README.md.');
+  }
 }
 
 async function main() {
@@ -334,6 +405,7 @@ async function main() {
     case 'auth': await requireManaged(); return auth(arg);
     case 'baseline': return backup();
     case 'reset': return reset(arg);
+    case 'player-setup': return playerSetup(arg);
     case 'pause': await requireManaged(); console.log(await cli('system.pauseSimulation()')); return;
     case 'resume': await requireManaged(); console.log(await cli('system.resumeSimulation()')); return;
     case 'tickrate': {
@@ -356,7 +428,7 @@ async function main() {
       finally { rl.close(); }
       return;
     }
-    default: throw new Error('Use local:bootstrap/start/stop/status/auth/cli/tickrate/pause/resume/baseline/reset.');
+    default: throw new Error('Use local:bootstrap/start/stop/status/auth/cli/tickrate/pause/resume/baseline/reset/player-setup.');
   }
 }
 
