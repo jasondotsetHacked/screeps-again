@@ -3,6 +3,7 @@ import { cleanupDeadCreepMemory, initializeMemory } from '../memory/lifecycle';
 import { publishOpsSnapshot, recordOpsError } from '../ops/opsTelemetry';
 import { arbitrateSafety } from './arbitrateSafety';
 import { updateVisibleRoomIntel } from '../world/roomIntel';
+import { installRoomPlanDebug } from '../construction/roomPlanRuntime';
 
 const STATUS_INTERVAL = 100;
 
@@ -10,6 +11,7 @@ export function runKernel(): void {
   const cpuStart = Game.cpu.getUsed();
 
   initializeMemory();
+  installRoomPlanDebug();
   cleanupDeadCreepMemory();
 
   const ownedRooms = Object.values(Game.rooms).filter(
