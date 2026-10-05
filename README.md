@@ -58,7 +58,14 @@ npm run check
 npm run deploy
 ```
 
-The deploy command builds `dist/main.js` and uploads it to the Screeps code branch configured by `SCREEPS_CODE_BRANCH` (default: `default`).
+The deploy command explicitly targets **https://screeps.com**, builds `dist/main.js`, and uploads it to the Screeps code branch configured by `SCREEPS_CODE_BRANCH` (default: `default`).
+
+For a disposable accelerated **native Windows** server, use the
+[local Screeps lab](dev/local-screeps/README.md). Start with
+`npm run local:bootstrap`; `npm run deploy:local` builds the **same runtime**
+but uses separate `.env.local` credentials and a loopback-only API. The lab
+defaults to 200 ms/tick and supports saved baseline restore for repeatable tests.
+It requires no Docker, Mongo/Redis, AWS, or MCP deployment.
 
 The isolated, read-only remote MCP gateway is documented in [private Screeps MCP](docs/private-screeps-mcp.md). `npm run check` includes its credential-free tests. MCP deployment is a separate, explicitly authorized operation.
 

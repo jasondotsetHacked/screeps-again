@@ -1,0 +1,33 @@
+nodeVersion: v24.14.0
+version: 4.3.0
+processors: 2
+runnerThreads: 1
+mods:
+  - screepsmod-auth
+  - screepsmod-admin-utils
+extraPackages:
+  screepsmod-auth: 2.9.0
+  screepsmod-admin-utils: 1.36.4
+pinnedPackages:
+  ssri: 8.0.1
+  cacache: 15.3.0
+  passport-steam: 1.0.17
+  minipass-fetch: 2.1.2
+  express-rate-limit: 6.7.0
+  psl: 1.10.0
+env:
+  shared:
+    STORAGE_HOST: 127.0.0.1
+    STORAGE_PORT: "21027"
+  backend:
+    GAME_HOST: 127.0.0.1
+    GAME_PORT: "21025"
+    CLI_HOST: 127.0.0.1
+    CLI_PORT: "21026"
+    STEAM_KEY: offline-local-lab-no-steam-login
+serverConfig:
+  tickRate: 200
+  shardName: local
+  welcomeText: <h1>Disposable local Screeps lab</h1>
+  auth:
+    registerCpu: 100
