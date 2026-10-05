@@ -106,16 +106,31 @@ npm run local:cli -- "system.getTickDuration()"
 npm run local:stop
 ```
 
-The launcher runs in the background without a visible window. Logs are under
-`.local/screeps/`. Game/API port **21025**, admin CLI **21026**, and built-in
-storage **21027** all bind to **127.0.0.1**. Commands refuse to adopt another
+The launcher and all its modules run in the background without visible command
+windows. On first start (and when its source changes), Windows PowerShell's
+built-in .NET Framework compiler builds our small Windows GUI host into
+`.local/screeps/windows-server-host.exe`. No SDK installation or launcher fork
+is needed. The host gives the launcher's `.cmd` modules a hidden console to
+inherit and owns every descendant in a Windows Job Object. An exclusive file
+lock prevents concurrent hosts from starting two servers.
+
+Logs remain under `.local/screeps/`: `launcher.stdout.log`,
+`launcher.stderr.log`, and `runtime/logs/` retain their existing streams.
+Host startup failures go to `windows-host.log`. Game/API port **21025**, admin
+CLI **21026**, and built-in storage **21027** all bind to **127.0.0.1**. Commands refuse to adopt another
 process occupying these ports. Stop checks executable path and process creation
 time against the saved PID before terminating only the owned Windows process
-tree.
+tree. New ownership records also verify the host's executable, creation time,
+and its parent relationship to the launcher. Servers started before the host
+was introduced can still be stopped normally before restarting.
 
 Stop pauses the simulation, waits 12 seconds for the current tick and the
 built-in storage's 10-second autosave, verifies the paused tick was persisted,
-then terminates the tree. If persistence verification fails it leaves the server
+then terminates the host and tree. Closing the host's non-inherited job handle
+also kills detached descendants, including on an unexpected host exit. If the
+launcher exits, the host closes the job and exits as well. Abrupt exits cannot
+guarantee autosave; use normal `local:stop` for persistence.
+If persistence verification fails it leaves the server
 running and asks you to retry. Startup retains the saved pause state: use
 `local:resume` to run again. A baseline or reset always leaves a paused world.
 For a failed startup with an unavailable admin CLI, inspect the logs, then use

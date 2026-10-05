@@ -17,6 +17,9 @@ const lab = resolve(root, '.local/screeps');
 const runtime = resolve(lab, 'runtime');
 const launcher = resolve(lab, 'screeps-launcher.exe');
 const pidFile = resolve(lab, 'process.json');
+const hostSource = resolve(root, 'tools/local-screeps/WindowsServerHost.cs');
+const hostExecutable = resolve(lab, 'windows-server-host.exe');
+const powershell = resolve(process.env.SystemRoot || 'C:/Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe');
 const baseline = resolve(lab, 'backups/baseline.gz');
 const version = 'v1.17.0';
 const hashes = {
@@ -32,7 +35,7 @@ async function saveConfig(value) { await writeFile(resolve(runtime, 'config.yml'
 async function processInfo(pid) {
   if (!Number.isSafeInteger(pid) || pid <= 0) throw new Error('Invalid managed process ID.');
   const { stdout } = await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command',
-    `Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" | Select-Object ProcessId,ExecutablePath,CreationDate | ConvertTo-Json -Compress`],
+    `Get-CimInstance Win32_Process -Filter "ProcessId = ${pid}" | Select-Object ProcessId,ExecutablePath,CreationDate,ParentProcessId | ConvertTo-Json -Compress`],
   { windowsHide: true });
   return stdout.trim() ? JSON.parse(stdout) : null;
 }
@@ -44,6 +47,13 @@ async function managedProcess() {
   if (!actual) { await rm(pidFile); return null; }
   if (actual.ExecutablePath?.toLowerCase() !== launcher.toLowerCase() || actual.CreationDate !== saved.created) {
     throw new Error('Managed PID belongs to a different process; refusing to control it. Inspect .local/screeps/process.json.');
+  }
+  if (saved.host) {
+    const host = await processInfo(saved.host.pid);
+    if (!host || host.ExecutablePath?.toLowerCase() !== hostExecutable.toLowerCase() ||
+        host.CreationDate !== saved.host.created || actual.ParentProcessId !== saved.host.pid) {
+      throw new Error('Managed Windows host ownership mismatch; refusing to control it. Inspect .local/screeps/process.json.');
+    }
   }
   return saved;
 }
@@ -111,6 +121,23 @@ async function health() {
   return data;
 }
 
+async function compileHost() {
+  // Windows PowerShell's built-in .NET Framework compiler; no installed SDK,
+  // downloaded wrapper, upstream fork, or persistent execution-policy change.
+  const sourceHash = createHash('sha256').update(await readFile(hostSource)).digest('hex');
+  const receipt = hostExecutable + '.sha256';
+  if (existsSync(hostExecutable) && existsSync(receipt)) {
+    const [source, binary] = (await readFile(receipt, 'utf8')).trim().split(' ');
+    if (source === sourceHash && binary === createHash('sha256').update(await readFile(hostExecutable)).digest('hex')) return;
+  }
+  await rm(hostExecutable, { force: true });
+  await exec(powershell, ['-NoProfile', '-NonInteractive', '-Command',
+    'Add-Type -Path $env:SCREEPS_HOST_SOURCE -OutputAssembly $env:SCREEPS_HOST_OUTPUT -OutputType WindowsApplication'],
+  { windowsHide: true, env: { ...process.env, SCREEPS_HOST_SOURCE: hostSource, SCREEPS_HOST_OUTPUT: hostExecutable } });
+  const binaryHash = createHash('sha256').update(await readFile(hostExecutable)).digest('hex');
+  await writeFile(receipt, `${sourceHash} ${binaryHash}\n`);
+}
+
 async function start() {
   await verifyLauncher();
   await mkdir(resolve(lab, 'profile'), { recursive: true });
@@ -120,15 +147,31 @@ async function start() {
     'Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue | Where-Object { $_.LocalPort -in 21025,21026,21027 } | Select-Object -ExpandProperty LocalPort'],
   { windowsHide: true });
   if (stdout.trim()) throw new Error('Lab ports 21025/21026/21027 are occupied by an unmanaged process; stop it first.');
-  const output = await open(resolve(lab, 'launcher.stdout.log'), 'a');
-  const errors = await open(resolve(lab, 'launcher.stderr.log'), 'a');
-  const child = spawn(launcher, [], { cwd: runtime, windowsHide: true, detached: true, stdio: ['ignore', output.fd, errors.fd], env: serverEnv() });
-  await new Promise((res, rej) => { child.once('spawn', res); child.once('error', rej); });
-  const info = await processInfo(child.pid);
-  if (!info) throw new Error('Launcher exited during startup. See .local/screeps/launcher.stderr.log.');
-  await writeFile(pidFile, JSON.stringify({ pid: child.pid, created: info.CreationDate }, null, 2));
-  child.unref();
-  await output.close(); await errors.close();
+  await compileHost();
+  const hostLog = await open(resolve(lab, 'windows-host.log'), 'a');
+  const child = spawn(hostExecutable, [launcher, runtime, pidFile, lab],
+    { cwd: runtime, windowsHide: true, detached: true, stdio: ['ignore', hostLog.fd, hostLog.fd], env: serverEnv() });
+  try {
+    await new Promise((res, rej) => { child.once('spawn', res); child.once('error', rej); });
+    for (let attempt = 0; attempt < 100; attempt++) {
+      if (child.exitCode !== null || child.signalCode !== null) throw new Error('Windows host exited during startup. See .local/screeps/windows-host.log.');
+      if (existsSync(pidFile)) {
+        const owned = await managedProcess();
+        if (owned?.host?.pid !== child.pid) throw new Error('Another start owns the lab; refusing to adopt it.');
+        break;
+      }
+      if (attempt === 99) throw new Error('Windows host startup timed out. See .local/screeps/windows-host.log.');
+      await delay(100);
+    }
+  } catch (error) {
+    // The child handle targets this exact host; closing its job kills even a
+    // suspended launcher if initialization/ownership publication failed.
+    child.kill();
+    throw error;
+  } finally {
+    child.unref();
+    await hostLog.close();
+  }
   console.log('Waiting for local API and admin CLI...');
   for (let attempt = 0; attempt < 90; attempt++) {
     if (!await managedProcess()) throw new Error('Launcher exited. See .local/screeps/launcher.stderr.log.');
@@ -160,8 +203,19 @@ async function stop(force = false) {
     const savedEnv = db.collections.find(collection => collection.name === 'env')?.data[0];
     if (String(savedEnv?.data?.gameTime) !== String(tick) || Number(savedEnv?.data?.mainLoopPaused) !== 1) throw new Error('Storage has not saved the paused tick; refusing to stop. Retry local:stop.');
   }
-  if (!await managedProcess()) throw new Error('Managed launcher exited before stop; inspect server processes before retrying.');
-  await exec('taskkill.exe', ['/PID', String(owned.pid), '/T', '/F'], { windowsHide: true });
+  const current = await managedProcess();
+  if (!current || current.pid !== owned.pid || current.created !== owned.created ||
+      current.host?.pid !== owned.host?.pid || current.host?.created !== owned.host?.created) {
+    throw new Error('Managed server changed before stop; refusing to terminate it.');
+  }
+  // Legacy PID files remain stoppable. New hosts own a kill-on-close job, so
+  // kernel cleanup also catches descendants that escape taskkill's tree walk.
+  await exec('taskkill.exe', ['/PID', String(owned.host?.pid ?? owned.pid), '/T', '/F'], { windowsHide: true });
+  for (let attempt = 0; ; attempt++) {
+    if (!await processInfo(owned.pid) && (!owned.host || !await processInfo(owned.host.pid))) break;
+    if (attempt === 9) throw new Error('Managed processes have not exited; retaining ownership file for inspection.');
+    await delay(100);
+  }
   await rm(pidFile, { force: true });
   console.log(force ? 'Force-stopped managed local server; unsaved state may be lost.' : 'Stopped local server. Next start remains paused; use local:resume.');
 }
