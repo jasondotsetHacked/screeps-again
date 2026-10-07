@@ -1,0 +1,30 @@
+name: Verification
+description: Prove an existing implementation meets its required acceptance criteria.
+labels: ["type:verification", "needs-verification"]
+body:
+  - type: textarea
+    id: implementation
+    attributes:
+      label: What already exists
+      description: "Link PR/commit/docs; state whether code is on main and what automated checks cover."
+    validations:
+      required: true
+  - type: textarea
+    id: unproven
+    attributes:
+      label: What remains unproven
+      description: "Track Implemented, Automated-test verified, Local-lab verified, Live-world verified, and Complete separately. Name partial/pending/not-applicable layers and reasons."
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence required for closure
+      description: "Scenarios and expected engine outcomes; commit, lab baseline/versions or official shard/room, tick range, time/timezone, and useful sanitized telemetry. External ops also needs real service/client evidence."
+    validations:
+      required: true
+  - type: textarea
+    id: dependencies
+    attributes:
+      label: Prerequisites, related capability, and exclusions
+      description: "Link blockers. Verification failures become linked bugs. Deployment, account actions, destructive lab resets, and AWS changes need operation-specific authorization."

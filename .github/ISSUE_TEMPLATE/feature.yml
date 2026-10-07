@@ -1,0 +1,39 @@
+name: Feature or capability
+description: Define one accepted capability with observable acceptance criteria.
+labels: ["type:feature"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: "What independently completable outcome should this enable?"
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: "Observable outcomes or a checklist; implementation and merge alone may not satisfy them."
+    validations:
+      required: true
+  - type: textarea
+    id: current
+    attributes:
+      label: Current state and known gaps
+      description: "Record Implemented, Automated-test verified, Local-lab verified, Live-world verified, and Complete separately; link commits and state unmerged work."
+  - type: textarea
+    id: exclusions
+    attributes:
+      label: Exclusions
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification requirements
+      description: "Name automated checks, local-lab scenarios/baselines, and official-world shard/room/tick/time/telemetry evidence required. Justify not-applicable layers."
+    validations:
+      required: true
+  - type: textarea
+    id: references
+    attributes:
+      label: Dependencies, implementation PRs, and architecture docs
+      description: "Link prerequisites and explain blocked/deferred work. A verification plan does not authorize deployment or account/AWS mutation."

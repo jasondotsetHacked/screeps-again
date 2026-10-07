@@ -22,6 +22,28 @@ autonomous and survivable if every external service disappears.
 See [docs/vision.md](docs/vision.md) for the architectural north star and the
 principles intended to guide future development.
 
+## Development and project state
+
+Use [the development workflow](docs/DEVELOPMENT-WORKFLOW.md) and [AGENTS.md](AGENTS.md)
+for human and AI-assisted work. [Issues](https://github.com/jasondotsetHacked/screeps-again/issues)
+track independently completable work; [milestones](https://github.com/jasondotsetHacked/screeps-again/milestones)
+define near-term readiness; PRs preserve implementation and validation history.
+The vision describes direction rather than a committed task list.
+
+Track **Implemented**, **Automated-test verified**, **Local-lab verified**,
+**Live-world verified**, and **Complete** separately. Passing `npm run check` or
+merging a PR does not establish gameplay completion. Record local scenarios and
+official-world shard/room/tick/time/telemetry evidence against the tested commit.
+
+Current main includes colony labor/safety, population recovery, visible-room
+intel, local miner/hauler operations, the Phase 3.1 controller-buffer/storage
+transition, private AWS telemetry/MCP, and accelerated local-lab tooling. Some
+acceptance evidence remains outstanding; see the workflow's audit and linked
+issues. [RoomPlan v1 / PR #30](https://github.com/jasondotsetHacked/screeps-again/pull/30)
+is an unmerged draft with automated coverage and pending local-lab and
+official-world/brownfield acceptance. Scouting, cross-room travel, remote economy,
+autonomous claiming, and a deeper economy forecaster remain future capabilities.
+
 ## V1 goals
 
 - Play on the official persistent Screeps World.
@@ -182,4 +204,6 @@ Workers remain generalists for refill/build/repair/upgrade work and recovery fal
 - CI does not require Screeps credentials.
 - Account mutation through the reboot tool requires the explicit `--commit` flag.
 
-See the project issues for the longer-term architecture and forecasting roadmap.
+See [the development workflow](docs/DEVELOPMENT-WORKFLOW.md) for current issue
+scope, evidence requirements, and milestone readiness; use [the vision](docs/vision.md)
+for longer-term architectural direction.
