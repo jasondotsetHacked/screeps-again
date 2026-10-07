@@ -1,0 +1,29 @@
+name: Chore or infrastructure
+description: Repository maintenance, tooling, infrastructure, or operating work.
+labels: ["type:chore"]
+body:
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal and reason
+    validations:
+      required: true
+  - type: textarea
+    id: completion
+    attributes:
+      label: Completion criteria
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Current state, scope, and exclusions
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation and operational evidence
+      description: "Separate implementation, automated tests, local-lab checks, live-world checks, and completion. Justify not-applicable layers; include actual service/client and recovery evidence as appropriate."
+  - type: textarea
+    id: references
+    attributes:
+      label: Related issues, PRs, and docs

@@ -1,0 +1,42 @@
+name: Bug
+description: Report unexpected behavior, even if the cause is still unclear.
+labels: ["type:bug"]
+body:
+  - type: markdown
+    attributes:
+      value: "Short reports are welcome; triage can fill gaps. Use sanitized evidence only: no tokens, cookies, raw Memory, or private backups."
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behavior
+      placeholder: "Example: loaded source haulers idle while the controller buffer is empty."
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected area
+      options: [Unknown, Runtime, Colony, Logistics, Planning, World intelligence, Ops, Infrastructure, Security]
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction and environment
+      description: "Commit, test/lab/official World, baseline or shard/room, tick range, time/timezone, and steps if known."
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Evidence or errors
+      description: "Sanitized logs, visuals, and useful telemetry. Separate observed engine results from accepted intents and suspicions."
+  - type: textarea
+    id: related
+    attributes:
+      label: Related capability, issues, PRs, or docs
+  - type: textarea
+    id: verification
+    attributes:
+      label: Verification needed before closure
+      description: "Automated regression checks, local-lab scenarios, official-world checks, and any justified not-applicable layers. Triage can supply this."
