@@ -2,6 +2,7 @@ import type { WorkPosition, WorkTarget } from '../work/demands';
 import { countPopulation, type PopulationCreep, type SpawningCreep } from '../spawning/population';
 import type { PopulationRequest } from '../spawning/spawnPlan';
 import { bodyCost } from '../spawning/body';
+import { selectSourceBuffer } from '../../shared/roomPlan/sourceTile';
 
 export interface SourceTile extends WorkPosition {
   walkable: boolean;
@@ -19,10 +20,7 @@ export function distance(a: WorkPosition, b: WorkPosition): number {
 // Already-built buffers win, then valid sites, then empty tiles toward spawn.
 // Input is just eight adjacent numeric observations; no terrain/path Memory.
 export function selectSourceTile(tiles: readonly SourceTile[], anchor: WorkPosition): SourceTile | undefined {
-  return tiles.filter((tile) => tile.walkable && (tile.containerId || tile.siteId || tile.placeable))
-    .sort((a, b) => Number(Boolean(b.containerId)) - Number(Boolean(a.containerId)) ||
-      Number(Boolean(b.siteId)) - Number(Boolean(a.siteId)) || distance(a, anchor) - distance(b, anchor) ||
-      a.y - b.y || a.x - b.x)[0];
+  return selectSourceBuffer(tiles, anchor);
 }
 
 // Home-room miners spend almost their whole lifetime stationary. Remote

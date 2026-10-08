@@ -453,7 +453,9 @@ test('pending rampart/road sites block simultaneous controller construction whil
 
 test('road-covered core candidates decline a new footprint conservatively', () => {
   const f = logisticsFixture(); const placed = construction(f);
-  for (let y = 5; y <= 17; y++) for (let x = 5; x <= 17; x++) roadAt(f, { x, y });
+  // Dynamic RoomPlan considers the whole room; cover every eligible footprint,
+  // retaining the original assertion that completed roads are never overwritten.
+  for (let y = 3; y <= 46; y++) for (let x = 3; x <= 46; x++) roadAt(f, { x, y });
   const layout = observeLocalLayout(f.room, f.spawn);
   assert.equal(layout.storage, undefined); assert.equal(layout.coreLink, undefined); assert.equal(layout.terminal, undefined);
   assert.equal(ensureLayoutSite(f.room, layout.storage, STRUCTURE_STORAGE), 0);

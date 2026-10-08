@@ -2,6 +2,8 @@ import type { CreepIdentity } from '../creeps/identity';
 
 declare global {
   interface Memory {
+    roomPlans?: Record<string, import('../../shared/roomPlan/intent').StoredRoomPlan | import('../../shared/roomPlan/types').RoomPlan>;
+    roomPlanVisuals?: Record<string, boolean>;
     meta?: {
       schemaVersion: number;
       firstSeenTick: number;

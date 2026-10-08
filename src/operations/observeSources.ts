@@ -1,6 +1,7 @@
 import type { ColonyState } from '../colony/colonyState';
 import { workTarget } from '../colony/colonyState';
 import { distance, planSourceOperation, selectSourceTile, type SourceOperation, type SourceTile } from './sourceOperation';
+import { selectSpawnAnchor } from '../construction/spawnAnchor';
 
 export function sourceTiles(room: Room, source: Source, structures: readonly Structure[],
   sites: readonly ConstructionSite[]): SourceTile[] {
@@ -28,12 +29,18 @@ export function chooseSourceTiles(room: Room, sources: readonly Source[], struct
   sites: readonly ConstructionSite[], anchor: RoomPosition): Map<string, SourceTile | undefined> {
   const chosen = new Map<string, SourceTile | undefined>();
   const used = new Set<string>();
+  const plan = Memory.roomPlans?.[room.name];
   for (const source of [...sources].sort((a, b) => a.id.localeCompare(b.id))) {
     let candidates = sourceTiles(room, source, structures, sites)
       .filter((tile) => !used.has(`${tile.x},${tile.y}`) &&
         !sources.some((s) => s.pos.x === tile.x && s.pos.y === tile.y) &&
         !(room.controller?.pos.x === tile.x && room.controller.pos.y === tile.y));
     let tile: SourceTile | undefined;
+    if (plan) {
+      // A missing/blocked committed tile suspends specialists, never relocates the colony.
+      const intent = plan.version === 1 ? plan.sources.find((s) => s.sourceId === source.id)?.miner : undefined;
+      candidates = candidates.filter((p) => intent && p.x === intent.x && p.y === intent.y);
+    }
     while (candidates.length) {
       const candidate = selectSourceTile(candidates, anchor);
       if (!candidate) break;
@@ -62,7 +69,7 @@ export function localRouteTicks(room: Room, tile: { x: number; y: number }, anch
 }
 
 export function observeSourceOperations(state: ColonyState): SourceOperation[] {
-  const spawn = [...state.spawns].filter((s) => s.isActive()).sort((a, b) => a.id.localeCompare(b.id))[0];
+  const spawn = selectSpawnAnchor(state.spawns.filter((s) => s.isActive()), Memory.roomPlans?.[state.room.name]);
   if (!spawn || !state.controller?.my) return [];
   const tiles = chooseSourceTiles(state.room, state.sources, state.structures, state.constructionSites, spawn.pos);
   const workforceReady = state.population.effectiveWorkers >= state.population.target &&
